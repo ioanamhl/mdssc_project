@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+
+  mongodb:
+    image: mongo:7
+    container_name: greencart-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - greencart-network
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: greencart-backend
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      MONGODB_URI: mongodb://mongodb:27017
+      JWT_SECRET: sdfsdf#fdsfsf
+      NODE_ENV: production
+      SELLER_EMAIL: admin@gmail.com
+      SELLER_PASSWORD: admin123
+      CLOUDINARY_CLOUD_NAME: dkmba544e
+      CLOUDINARY_API_KEY: "417832241467689"
+      CLOUDINARY_API_SECRET: q8N_EzFdL-vr9MlKWL-UHc47pWI
+      ALLOWED_ORIGINS: "http://localhost"
+    depends_on:
+      - mongodb
+    networks:
+      - greencart-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_BACKEND_URL: ""
+        VITE_CURRENCY: "$"
+    container_name: greencart-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - greencart-network
+    restart: unless-stopped
+
+  jenkins:
+    image: jenkins/jenkins:lts
+    container_name: greencart-jenkins
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_data:/var/jenkins_home
+    networks:
+      - greencart-network
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+  jenkins_data:
+
+networks:
+  greencart-network:
+    driver: bridge
