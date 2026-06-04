@@ -40,10 +40,16 @@ jobs:
         run: |
           set -e
 
+          echo "=== Obtin CSRF crumb ==="
+          CRUMB=$(curl -s -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
+            "$JENKINS_URL/crumbIssuer/api/xml?xpath=concat(//crumbRequestField,\":\",//crumb)")
+          echo "Crumb: $CRUMB"
+
           echo "=== Triggering Jenkins job: $JENKINS_JOB ==="
           curl -s -X POST \
             "$JENKINS_URL/job/$JENKINS_JOB/build?token=$JENKINS_REMOTE_TOKEN" \
             -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
+            -H "$CRUMB" \
             -D /tmp/trigger_headers.txt -o /dev/null
 
           HTTP_CODE=$(grep "HTTP/" /tmp/trigger_headers.txt | tail -1 | awk '{print $2}')
