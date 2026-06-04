@@ -1,0 +1,93 @@
+name: Outer CI/CD
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+
+jobs:
+  # ─── 1. CodeQL — scanare statica cod sursa ────────────────────────────────
+  scan-code:
+    name: Scan Code (CodeQL)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initializare CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+
+      - name: Analiza CodeQL
+        uses: github/codeql-action/analyze@v3
+
+  # ─── 2. Jenkins — inner pipeline (MDSSC + Build + Deploy) ────────────────
+  jenkins:
+    name: Jenkins (MDSSC + Build + Deploy)
+    needs: scan-code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Porneste pipeline-ul Jenkins si asteapta
+        uses: appleboy/jenkins-action@v1.1.0
+        with:
+          url:          ${{ secrets.JENKINS_VPS_URL }}
+          user:         ${{ secrets.JENKINS_USER }}
+          token:        ${{ secrets.MDSSC_JENKINS_API_TOKEN }}
+          remote_token: ${{ secrets.JENKINS_REMOTE_TOKEN }}
+          job:          mdssc-ci
+          wait:         true
+          timeout:      '30m'
+
+  # ─── 3. E2E — Playwright pe VPS-ul deja deployat de Jenkins ──────────────
+  e2e:
+    name: E2E Tests (Playwright)
+    needs: jenkins
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instaleaza dependinte E2E
+        run: npm ci
+        working-directory: e2e
+
+      - name: Instaleaza Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: e2e
+
+      - name: Ruleaza teste E2E
+        run: npx playwright test
+        working-directory: e2e
+        env:
+          BASE_URL: ${{ secrets.VPS_BASE_URL }}
+
+      - name: Upload raport Playwright
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+
+  # ─── 4. Release — tag GitHub daca totul e verde ──────────────────────────
+  release:
+    name: GitHub Release
+    needs: e2e
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Creaza GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
