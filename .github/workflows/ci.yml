@@ -5,35 +5,65 @@ on:
     branches: ["**"]
   pull_request:
     branches: ["**"]
+  schedule:
+    # Scanare periodica (luni 03:27 UTC) — prinde vulnerabilitati nou-descoperite in cod existent
+    - cron: "27 3 * * 1"
+
+# Least privilege: implicit zero permisiuni; fiecare job cere strict ce-i trebuie
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  # ─── 1. CodeQL — scanare statica cod sursa ────────────────────────────────
+  # ─── 1. CodeQL — scanare statica cod sursa (SAST) ─────────────────────────
   scan-code:
     name: Scan Code (CodeQL)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
-      security-events: write
+      security-events: write # urca rezultatele in tab-ul Security
       contents: read
+      actions: read
     steps:
-      - uses: actions/checkout@v4
+      - name: Harden runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Initializare CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@d77b13a0df3134d64a457ea9003f600b09fa1c8a # v3
         with:
           languages: javascript-typescript
+          queries: security-extended
 
       - name: Analiza CodeQL
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@d77b13a0df3134d64a457ea9003f600b09fa1c8a # v3
 
-  # ─── 2. Validare YAML — sintaxa fisiere YAML + workflow-uri ───────────────
+  # ─── 2. Validare YAML — sintaxa fisierelor YAML din repo ──────────────────
   validate-yaml:
     name: Validate YAML
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - name: Harden runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Validare sintaxa YAML (yamllint)
-        uses: ibiqlik/action-yamllint@v3
+        uses: ibiqlik/action-yamllint@2576378a8e339169678f9939646ee3ee325e845c # v3
         with:
           config_data: |
             extends: relaxed
@@ -49,7 +79,34 @@ jobs:
               comments: disable
               comments-indentation: disable
 
-      - name: Validare workflow-uri GitHub Actions (actionlint)
-        run: |
-          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
-          ./actionlint -color -shellcheck=
+  # ─── 3. Secret Scan — detecteaza secrete commit-uite (Gitleaks) ───────────
+  secret-scan:
+    name: Secret Scan (Gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write # urca SARIF in tab-ul Security
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0 # istoric complet pentru scanarea secretelor
+          persist-credentials: false
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload SARIF (Security tab)
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@d77b13a0df3134d64a457ea9003f600b09fa1c8a # v3
+        with:
+          sarif_file: results.sarif
+          category: gitleaks

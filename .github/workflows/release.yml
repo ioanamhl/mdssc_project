@@ -5,12 +5,27 @@ on:
     branches: ["main"]
     tags: ["v*"]
 
+# Least privilege: implicit zero permisiuni; fiecare job cere strict ce-i trebuie
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false # nu intrerupem un deploy in curs
+
 jobs:
   # ─── 1. Jenkins — inner pipeline (MDSSC + Build + Deploy) ────────────────
   jenkins:
     name: Jenkins (MDSSC + Build + Deploy)
     runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2
+        with:
+          egress-policy: audit
+
       - name: Porneste pipeline-ul Jenkins si asteapta
         env:
           JENKINS_URL:          ${{ secrets.JENKINS_VPS_URL }}
@@ -88,10 +103,20 @@ jobs:
     name: E2E Tests (Playwright)
     needs: jenkins
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - name: Harden runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2
+        with:
+          egress-policy: audit
 
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
 
@@ -111,25 +136,63 @@ jobs:
 
       - name: Upload raport Playwright
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-report
           path: e2e/playwright-report/
 
-  # ─── 3. Release — tag GitHub daca totul e verde ──────────────────────────
+  # ─── 3. Release — SBOM + semnare + provenance + GitHub Release (doar tag v*)
+  #     Nota: SBOM/semnatura acopera supply-chain-ul SURSEI generat in Actions.
+  #     Artefactul binar e construit in Jenkins (zona infra) si nu e acoperit aici.
   release:
     name: GitHub Release
     needs: e2e
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
-      contents: write
+      contents: write # creeaza release-ul + urca asset-urile
+      id-token: write # cosign keyless + atestare (OIDC)
+      attestations: write # build provenance attestation
     steps:
-      - uses: actions/checkout@v4
+      - name: Harden runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Generare SBOM (sursa)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+
+      - name: Instalare cosign
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+
+      - name: Semnare SBOM (cosign keyless)
+        run: |
+          cosign sign-blob --yes \
+            --output-signature sbom.spdx.json.sig \
+            --output-certificate sbom.spdx.json.pem \
+            sbom.spdx.json
+
+      - name: Atestare provenance pentru SBOM
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: sbom.spdx.json
 
       - name: Creaza GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           generate_release_notes: true
+          files: |
+            sbom.spdx.json
+            sbom.spdx.json.sig
+            sbom.spdx.json.pem
