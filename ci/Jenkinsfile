@@ -137,7 +137,7 @@ pipeline {
                 }
             }
         }
-
+        
         // ----------------------------------------------------------
         // 3. SOURCE CODE SCAN
         //    Direct scan: upload source-code.tar.gz → MDSSC scans it.
@@ -178,7 +178,110 @@ pipeline {
                 }
             }
         }
+        // ----------------------------------------------------------
+        // 3.5. SECURITY SCAN 
+        //    npm audit  — scanare vulnerabilități dependențe
+        //    ESLint     — calitate cod frontend
+        //    Rapoarte JSON arhivate în Jenkins
+        // ----------------------------------------------------------
+        stage('Security Scan') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo '   SECURITY SCAN — npm audit + ESLint'
+                    echo '=========================================='
 
+                    // ── Backend: npm audit ──
+                    dir("${env.BACKEND_DIR}") {
+                        sh 'npm ci --prefer-offline 2>/dev/null || npm ci'
+                        
+                        def backendAudit = sh(
+                            script: 'npm audit --json 2>/dev/null || true',
+                            returnStdout: true
+                        ).trim()
+                        
+                        writeFile file: '../artifacts/backend-audit.json', text: backendAudit
+                        
+                        def auditData = readJSON text: backendAudit
+                        def critical = auditData?.metadata?.vulnerabilities?.critical ?: 0
+                        def high     = auditData?.metadata?.vulnerabilities?.high     ?: 0
+                        def moderate = auditData?.metadata?.vulnerabilities?.moderate ?: 0
+                        def low      = auditData?.metadata?.vulnerabilities?.low      ?: 0
+                        
+                        echo ''
+                        echo '=========================================='
+                        echo '   BACKEND npm audit REPORT'
+                        echo '=========================================='
+                        echo "  Critical : ${critical}"
+                        echo "  High     : ${high}"
+                        echo "  Moderate : ${moderate}"
+                        echo "  Low      : ${low}"
+                        echo '=========================================='
+                        
+                        if (critical > 0) {
+                            unstable("⚠️ Backend: ${critical} CRITICAL vulnerabilities found! Check artifacts/backend-audit.json")
+                        }
+                    }
+
+                    // ── Frontend: npm audit ──
+                    dir("${env.FRONTEND_DIR}") {
+                        sh 'npm ci --prefer-offline 2>/dev/null || npm ci'
+                        
+                        def frontendAudit = sh(
+                            script: 'npm audit --json 2>/dev/null || true',
+                            returnStdout: true
+                        ).trim()
+                        
+                        writeFile file: '../artifacts/frontend-audit.json', text: frontendAudit
+                        
+                        def auditData = readJSON text: frontendAudit
+                        def critical = auditData?.metadata?.vulnerabilities?.critical ?: 0
+                        def high     = auditData?.metadata?.vulnerabilities?.high     ?: 0
+                        def moderate = auditData?.metadata?.vulnerabilities?.moderate ?: 0
+                        def low      = auditData?.metadata?.vulnerabilities?.low      ?: 0
+                        
+                        echo ''
+                        echo '=========================================='
+                        echo '   FRONTEND npm audit REPORT'
+                        echo '=========================================='
+                        echo "  Critical : ${critical}"
+                        echo "  High     : ${high}"
+                        echo "  Moderate : ${moderate}"
+                        echo "  Low      : ${low}"
+                        echo '=========================================='
+                        
+                        if (critical > 0) {
+                            unstable("⚠️ Frontend: ${critical} CRITICAL vulnerabilities found! Check artifacts/frontend-audit.json")
+                        }
+
+                        // ── ESLint ──
+                        echo ''
+                        echo '=========================================='
+                        echo '   FRONTEND ESLint REPORT'
+                        echo '=========================================='
+                        
+                        def eslintResult = sh(
+                            script: 'npx eslint . --format json --output-file ../artifacts/eslint-report.json 2>/dev/null; echo $?',
+                            returnStdout: true
+                        ).trim()
+                        
+                        echo "ESLint exit code: ${eslintResult}"
+                        echo "ESLint report saved to artifacts/eslint-report.json"
+                    }
+
+                    // ── Arhivare rapoarte ──
+                    archiveArtifacts artifacts: 'artifacts/backend-audit.json, artifacts/frontend-audit.json, artifacts/eslint-report.json',
+                                    allowEmptyArchive: true,
+                                    fingerprint: true
+
+                    echo ''
+                    echo '=========================================='
+                    echo '   SECURITY SCAN COMPLETE'
+                    echo '   Rapoarte disponibile in Jenkins Artifacts'
+                    echo '=========================================='
+                }
+            }
+        }
         // ----------------------------------------------------------
         // 4. BUILD
         //    Install backend + frontend dependencies in parallel.
