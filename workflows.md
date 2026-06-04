@@ -52,4 +52,5 @@ flowchart LR
 ## De stiut
 
 - `mdssc-scan` are nevoie de secretele `MDSSC_SERVER` + `MDSSC_API_KEY` in repo, iar serverul MDSSC trebuie sa fie accesibil de pe runner-ul GitHub (de preferat HTTPS).
+- Pentru a evita rate-limit-ul anonim Docker Hub (10 pull-uri/ora/IP) la `opswat/mdssc-scanner`, se pot adauga optional secretele `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN`.
 - Scanarea va semnala secretele commit-uite (`backend/.env`, `docker-compose.yml`) — remedierea (rotire + scos din istoric) ramane in sarcina echipei.

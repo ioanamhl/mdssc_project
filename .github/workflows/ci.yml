@@ -82,10 +82,21 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
+
+      # Login optional la Docker Hub: evita rate-limit-ul anonim (10 pull-uri/ora/IP)
+      # la opswat/mdssc-scanner. Daca secretele lipsesc, pasul se sare (pull anonim).
+      - name: Login Docker Hub (optional)
+        if: env.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Scanare MDSSC (secrete + vulnerabilitati + malware + SBOM)
         env:
