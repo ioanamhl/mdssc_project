@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  # ─── 1. CodeQL — scanare statica cod sursa ────────────────────────────────
+  scan-code:
+    name: Scan Code (CodeQL)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initializare CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+
+      - name: Analiza CodeQL
+        uses: github/codeql-action/analyze@v3
+
+  # ─── 2. Validare YAML — sintaxa fisiere YAML + workflow-uri ───────────────
+  validate-yaml:
+    name: Validate YAML
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validare sintaxa YAML (yamllint)
+        uses: ibiqlik/action-yamllint@v3
+        with:
+          config_data: |
+            extends: relaxed
+            ignore: |
+              node_modules/
+              **/node_modules/
+              **/dist/
+              **/build/
+            rules:
+              line-length: disable
+              document-start: disable
+              truthy: disable
+              comments: disable
+              comments-indentation: disable
+
+      - name: Validare workflow-uri GitHub Actions (actionlint)
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color -shellcheck=
