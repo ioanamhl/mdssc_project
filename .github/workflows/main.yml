@@ -47,7 +47,7 @@ jobs:
 
           echo "=== Triggering Jenkins job: $JENKINS_JOB ==="
           curl -s -X POST \
-            "$JENKINS_URL/job/$JENKINS_JOB/build?token=$JENKINS_REMOTE_TOKEN" \
+            "$JENKINS_URL/job/$JENKINS_JOB/buildWithParameters" \
             -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
             -H "$CRUMB" \
             -D /tmp/trigger_headers.txt -o /dev/null
