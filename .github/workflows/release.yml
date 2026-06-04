@@ -21,11 +21,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Harden runner
-        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2
-        with:
-          egress-policy: audit
-
       - name: Porneste pipeline-ul Jenkins si asteapta
         env:
           JENKINS_URL:          ${{ secrets.JENKINS_VPS_URL }}
@@ -107,11 +102,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Harden runner
-        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2
-        with:
-          egress-policy: audit
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
@@ -141,9 +131,7 @@ jobs:
           name: playwright-report
           path: e2e/playwright-report/
 
-  # ─── 3. Release — SBOM + semnare + provenance + GitHub Release (doar tag v*)
-  #     Nota: SBOM/semnatura acopera supply-chain-ul SURSEI generat in Actions.
-  #     Artefactul binar e construit in Jenkins (zona infra) si nu e acoperit aici.
+  # ─── 3. Release — GitHub Release (doar pe tag v*) ─────────────────────────
   release:
     name: GitHub Release
     needs: e2e
@@ -151,48 +139,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: write # creeaza release-ul + urca asset-urile
-      id-token: write # cosign keyless + atestare (OIDC)
-      attestations: write # build provenance attestation
+      contents: write
     steps:
-      - name: Harden runner
-        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2
-        with:
-          egress-policy: audit
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Generare SBOM (sursa)
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
-        with:
-          path: .
-          format: spdx-json
-          output-file: sbom.spdx.json
-          upload-artifact: false
-
-      - name: Instalare cosign
-        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
-
-      - name: Semnare SBOM (cosign keyless)
-        run: |
-          cosign sign-blob --yes \
-            --output-signature sbom.spdx.json.sig \
-            --output-certificate sbom.spdx.json.pem \
-            sbom.spdx.json
-
-      - name: Atestare provenance pentru SBOM
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
-        with:
-          subject-path: sbom.spdx.json
-
       - name: Creaza GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           generate_release_notes: true
-          files: |
-            sbom.spdx.json
-            sbom.spdx.json.sig
-            sbom.spdx.json.pem

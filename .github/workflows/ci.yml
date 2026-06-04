@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: ["**"]
   schedule:
-    # Scanare periodica (luni 03:27 UTC) — prinde vulnerabilitati nou-descoperite in cod existent
+    # Scanare periodica (luni 03:27 UTC)
     - cron: "27 3 * * 1"
 
 # Least privilege: implicit zero permisiuni; fiecare job cere strict ce-i trebuie
@@ -17,21 +17,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ─── 1. CodeQL — scanare statica cod sursa (SAST) ─────────────────────────
+  # ─── 1. CodeQL — SAST (analiza statica a codului) ─────────────────────────
+  #     OPSWAT/MDSSC nu face SAST, deci CodeQL ramane ca strat complementar.
   scan-code:
     name: Scan Code (CodeQL)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      security-events: write # urca rezultatele in tab-ul Security
+      security-events: write
       contents: read
       actions: read
     steps:
-      - name: Harden runner
-        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2
-        with:
-          egress-policy: audit
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
@@ -53,11 +49,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Harden runner
-        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2
-        with:
-          egress-policy: audit
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
@@ -79,34 +70,37 @@ jobs:
               comments: disable
               comments-indentation: disable
 
-  # ─── 3. Secret Scan — detecteaza secrete commit-uite (Gitleaks) ───────────
-  secret-scan:
-    name: Secret Scan (Gitleaks)
+  # ─── 3. MDSSC — OPSWAT MetaDefender Software Supply Chain ──────────────────
+  #     Scaneaza sursa: secrete (Proactive DLP), vulnerabilitati in dependinte,
+  #     malware (multiscanning 30+ engine-uri) si genereaza SBOM. Rezultatele
+  #     detaliate apar in dashboard-ul MDSSC.
+  #     Necesita secretele de repo MDSSC_SERVER + MDSSC_API_KEY, iar serverul
+  #     MDSSC trebuie sa fie accesibil de pe runner-ul GitHub.
+  mdssc-scan:
+    name: MDSSC Scan (OPSWAT)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       contents: read
-      security-events: write # urca SARIF in tab-ul Security
     steps:
-      - name: Harden runner
-        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2
-        with:
-          egress-policy: audit
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          fetch-depth: 0 # istoric complet pentru scanarea secretelor
           persist-credentials: false
 
-      - name: Gitleaks
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+      - name: Scanare MDSSC (secrete + vulnerabilitati + malware + SBOM)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload SARIF (Security tab)
-        if: always()
-        continue-on-error: true
-        uses: github/codeql-action/upload-sarif@d77b13a0df3134d64a457ea9003f600b09fa1c8a # v3
-        with:
-          sarif_file: results.sarif
-          category: gitleaks
+          MDSSC_SERVER: ${{ secrets.MDSSC_SERVER }}
+          MDSSC_API_KEY: ${{ secrets.MDSSC_API_KEY }}
+        run: |
+          set -e
+          # Excludem node_modules/.git/build din scanare; raman manifestele de dependinte
+          mkdir -p /tmp/mdssc-src
+          rsync -a --exclude='.git' --exclude='node_modules' --exclude='dist' --exclude='build' ./ /tmp/mdssc-src/
+          docker run --rm \
+            -e MDSSC_SERVER="$MDSSC_SERVER" \
+            -e MDSSC_API_KEY="$MDSSC_API_KEY" \
+            -e FAIL_ON_VULNERABILITIES="true" \
+            -e VULNERABILITY_THRESHOLD="high" \
+            -e SCAN_TIMEOUT="900" \
+            -v /tmp/mdssc-src:/scan \
+            opswat/mdssc-scanner:latest
