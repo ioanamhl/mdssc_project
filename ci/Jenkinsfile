@@ -1,5 +1,5 @@
 // ============================================================
-// GreenCart Grocery — MDSSC Advanced CI/CD Pipeline
+// GreenCart Grocery — MDSSC Advanced CI/CD Pipeline — webhook test
 //
 // Stages:
 //   1. Checkout          — clone, tool checks, bundle source archive
@@ -24,9 +24,9 @@ pipeline {
     agent any
 
     triggers {
-        pollSCM('H/2 * * * *')
+        githubPush()
     }
-
+    ///small chnage to trigger build
     options {
         timestamps()
         skipDefaultCheckout(false)
