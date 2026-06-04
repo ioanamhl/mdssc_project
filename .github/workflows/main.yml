@@ -31,15 +31,70 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Porneste pipeline-ul Jenkins si asteapta
-        uses: appleboy/jenkins-action@v1.1.0
-        with:
-          url:          ${{ secrets.JENKINS_VPS_URL }}
-          user:         ${{ secrets.JENKINS_USER }}
-          token:        ${{ secrets.MDSSC_JENKINS_API_TOKEN }}
-          remote_token: ${{ secrets.JENKINS_REMOTE_TOKEN }}
-          job:          mdssc-ci
-          wait:         true
-          timeout:      '30m'
+        env:
+          JENKINS_URL:          ${{ secrets.JENKINS_VPS_URL }}
+          JENKINS_USER:         ${{ secrets.JENKINS_USER }}
+          JENKINS_API_TOKEN:    ${{ secrets.MDSSC_JENKINS_API_TOKEN }}
+          JENKINS_REMOTE_TOKEN: ${{ secrets.JENKINS_REMOTE_TOKEN }}
+          JENKINS_JOB:          proiect-mdssc
+        run: |
+          set -e
+
+          echo "=== Triggering Jenkins job: $JENKINS_JOB ==="
+          curl -s -X POST \
+            "$JENKINS_URL/job/$JENKINS_JOB/build?token=$JENKINS_REMOTE_TOKEN" \
+            -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
+            -D /tmp/trigger_headers.txt -o /dev/null
+
+          HTTP_CODE=$(grep "HTTP/" /tmp/trigger_headers.txt | tail -1 | awk '{print $2}')
+          echo "Trigger HTTP status: $HTTP_CODE"
+          if [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "200" ]; then
+            echo "ERROR: Jenkins trigger failed (HTTP $HTTP_CODE)"
+            cat /tmp/trigger_headers.txt
+            exit 1
+          fi
+
+          QUEUE_URL=$(grep -i "^Location:" /tmp/trigger_headers.txt | tr -d '\r' | awk '{print $2}')
+          echo "Queue URL: $QUEUE_URL"
+
+          echo "=== Astept pornirea build-ului (max 2 min) ==="
+          BUILD_URL=""
+          for i in $(seq 1 24); do
+            sleep 5
+            BUILD_URL=$(curl -s -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
+              "${QUEUE_URL}api/json" | \
+              python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('executable',{}).get('url',''))" 2>/dev/null || echo "")
+            if [ -n "$BUILD_URL" ]; then
+              echo "Build pornit: $BUILD_URL"
+              break
+            fi
+            echo "  astept... ($i/24)"
+          done
+
+          if [ -z "$BUILD_URL" ]; then
+            echo "ERROR: Build-ul nu a pornit in 2 minute"
+            exit 1
+          fi
+
+          echo "=== Polling status build (max 35 min) ==="
+          for i in $(seq 1 140); do
+            sleep 15
+            RESULT=$(curl -s -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
+              "${BUILD_URL}api/json" | \
+              python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result') or '')" 2>/dev/null || echo "")
+            echo "  [$i/140] status: ${RESULT:-IN_PROGRESS}"
+            if [ "$RESULT" = "SUCCESS" ]; then
+              echo "=== Jenkins build REUSIT ==="
+              exit 0
+            elif [ -n "$RESULT" ]; then
+              echo "=== Jenkins build ESUAT: $RESULT ==="
+              echo "  URL build: $BUILD_URL"
+              exit 1
+            fi
+          done
+
+          echo "ERROR: Timeout dupa 35 minute"
+          exit 1
 
   # ─── 3. E2E — Playwright pe VPS-ul deja deployat de Jenkins ──────────────
   e2e:
