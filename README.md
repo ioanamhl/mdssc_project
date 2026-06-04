@@ -1,7 +1,6 @@
 # GreenCart Grocery — MDSSC CI/CD Project
 
-[![CI](https://github.com/ioanamhl/mdssc_project/actions/workflows/ci.yml/badge.svg)](https://github.com/ioanamhl/mdssc_project/actions/workflows/ci.yml)
-[![Release](https://github.com/ioanamhl/mdssc_project/actions/workflows/release.yml/badge.svg)](https://github.com/ioanamhl/mdssc_project/actions/workflows/release.yml)
+[![CI/CD](https://github.com/ioanamhl/mdssc_project/actions/workflows/cicd.yml/badge.svg)](https://github.com/ioanamhl/mdssc_project/actions/workflows/cicd.yml)
 
 Proiect universitar ce demonstrează un pipeline CI/CD securizat pentru o aplicație de tip grocery shop (GreenCart), integrând scanare MDSSC (OPSWAT MetaDefender Supply Chain Security) atât pe codul sursă, cât și pe artefactele de build.
 
@@ -20,7 +19,7 @@ Pipline-ul este structurat pe două niveluri — **GitHub Actions** (orchestrato
 ```
 PUSH ──> GITHUB ACTIONS (outer)
               |
-              |── Scan Code          (CodeQL)
+              |── MDSSC Scan         (OPSWAT, sursă)
               |
               |── TRIGGER JENKINS ──────────> JENKINS (inner)
               |    ^ așteaptă                 |── scan sursă MDSSC
@@ -82,9 +81,9 @@ GitHub Actions orchestrează tot fluxul; Jenkins este chemat ca o etapă intern�
 -  Configurare webhook GitHub → Jenkins
 
 ### Adi — GitHub Actions Workflows
--  Creare `.github/workflows/ci.yml` (Scan Code + validare YAML)
--  Creare `.github/workflows/release.yml` (build + deploy automat)
--  Configurare E2E tests în workflow
+-  Creare workflow unic `.github/workflows/cicd.yml` (CI + CD într-un singur fișier)
+-  CI: scanare MDSSC (secrete + vulnerabilități + malware + SBOM) la fiecare push/PR
+-  CD: deploy (Jenkins) + E2E + release automat (semver) doar pe `main`
 -  Testare că Actions pornesc la fiecare push/PR
 -  Adăugare badge de status în README
 
@@ -109,6 +108,7 @@ mdssc_project/
 │   ├── playwright.config.js
 │   └── tests/
 ├── .github/
-│   └── workflows/    # GitHub Actions (de adăugat de Adi)
+│   └── workflows/
+│       └── cicd.yml          # GitHub Actions — CI + CD într-un singur fișier (Adi)
 └── docker-compose.yml
 ```
