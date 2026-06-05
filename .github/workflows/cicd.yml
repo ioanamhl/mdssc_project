@@ -1,0 +1,249 @@
+name: CI/CD
+
+# Un singur workflow:
+#   - CI  (mdssc-scan) ruleaza la ORICE push/PR/cron/dispatch
+#   - CD  (deploy -> e2e -> release) ruleaza DOAR pe push pe `main` (sau manual)
+# Release-ul e complet automat (semver auto), fara tag-uri `v*` introduse manual.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  schedule:
+    # Scanare periodica zilnica (03:27 UTC)
+    - cron: "27 3 * * *"
+  # Trigger manual; util pentru testare si pentru integrare in pipeline-uri mai mari
+  workflow_dispatch: {}
+
+# Least privilege: implicit zero permisiuni; fiecare job cere strict ce-i trebuie
+permissions: {}
+
+concurrency:
+  group: cicd-${{ github.ref }}
+  # Pe main nu intrerupem un deploy/release in curs; pe restul anulam rularile vechi
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  # ═══════════════════════ CI — ruleaza mereu ══════════════════════════════
+  # ─── MDSSC — OPSWAT MetaDefender Software Supply Chain ────────────────────
+  #     Scaneaza sursa: secrete (Proactive DLP), vulnerabilitati in dependinte,
+  #     malware (multiscanning 30+ engine-uri) si genereaza SBOM.
+  mdssc-scan:
+    name: MDSSC Scan (OPSWAT)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      # Login optional la Docker Hub: evita rate-limit-ul anonim (10 pull-uri/ora/IP)
+      # la opswat/mdssc-scanner. Daca secretele lipsesc, pasul se sare (pull anonim).
+      - name: Login Docker Hub (optional)
+        if: env.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Scanare MDSSC (secrete + vulnerabilitati + malware + SBOM)
+        env:
+          MDSSC_SERVER: ${{ secrets.MDSSC_SERVER }}
+          MDSSC_API_KEY: ${{ secrets.MDSSC_API_KEY }}
+        run: |
+          set -e
+          # Excludem node_modules/.git/build din scanare; raman manifestele de dependinte
+          mkdir -p /tmp/mdssc-src
+          rsync -a --exclude='.git' --exclude='node_modules' --exclude='dist' --exclude='build' ./ /tmp/mdssc-src/
+          docker run --rm \
+            -e MDSSC_SERVER="$MDSSC_SERVER" \
+            -e MDSSC_API_KEY="$MDSSC_API_KEY" \
+            -e FAIL_ON_VULNERABILITIES="true" \
+            -e VULNERABILITY_THRESHOLD="high" \
+            -e SCAN_TIMEOUT="900" \
+            -v /tmp/mdssc-src:/scan \
+            opswat/mdssc-scanner:latest
+
+  # ═══════════════════ CD — doar pe main (sau manual) ══════════════════════
+  # ─── Jenkins — inner pipeline (MDSSC + Build + Deploy) ────────────────────
+  #     Ruleaza doar dupa ce scanarea MDSSC a trecut.
+  deploy:
+    name: Jenkins (MDSSC + Build + Deploy)
+    needs: [mdssc-scan]
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - name: Porneste pipeline-ul Jenkins si asteapta
+        env:
+          JENKINS_URL: ${{ secrets.JENKINS_VPS_URL }}
+          JENKINS_USER: ${{ secrets.JENKINS_USER }}
+          JENKINS_API_TOKEN: ${{ secrets.MDSSC_JENKINS_API_TOKEN }}
+          JENKINS_REMOTE_TOKEN: ${{ secrets.JENKINS_REMOTE_TOKEN }}
+          JENKINS_JOB: proiect-mdssc
+        run: |
+          set -e
+
+          echo "=== Obtin CSRF crumb ==="
+          CRUMB=$(curl -s -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
+            "$JENKINS_URL/crumbIssuer/api/xml?xpath=concat(//crumbRequestField,\":\",//crumb)")
+          echo "Crumb: $CRUMB"
+
+          echo "=== Triggering Jenkins job: $JENKINS_JOB ==="
+          curl -s -X POST \
+            "$JENKINS_URL/job/$JENKINS_JOB/buildWithParameters" \
+            -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
+            -H "$CRUMB" \
+            -D /tmp/trigger_headers.txt -o /dev/null
+
+          HTTP_CODE=$(grep "HTTP/" /tmp/trigger_headers.txt | tail -1 | awk '{print $2}')
+          echo "Trigger HTTP status: $HTTP_CODE"
+          if [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "200" ]; then
+            echo "ERROR: Jenkins trigger failed (HTTP $HTTP_CODE)"
+            cat /tmp/trigger_headers.txt
+            exit 1
+          fi
+
+          QUEUE_URL=$(grep -i "^Location:" /tmp/trigger_headers.txt | tr -d '\r' | awk '{print $2}')
+          echo "Queue URL: $QUEUE_URL"
+
+          echo "=== Astept pornirea build-ului (max 2 min) ==="
+          BUILD_URL=""
+          for i in $(seq 1 24); do
+            sleep 5
+            BUILD_URL=$(curl -s -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
+              "${QUEUE_URL}api/json" | \
+              python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('executable',{}).get('url',''))" 2>/dev/null || echo "")
+            if [ -n "$BUILD_URL" ]; then
+              echo "Build pornit: $BUILD_URL"
+              break
+            fi
+            echo "  astept... ($i/24)"
+          done
+
+          if [ -z "$BUILD_URL" ]; then
+            echo "ERROR: Build-ul nu a pornit in 2 minute"
+            exit 1
+          fi
+
+          echo "=== Polling status build (max 35 min) ==="
+          for i in $(seq 1 140); do
+            sleep 15
+            RESULT=$(curl -s -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
+              "${BUILD_URL}api/json" | \
+              python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result') or '')" 2>/dev/null || echo "")
+            echo "  [$i/140] status: ${RESULT:-IN_PROGRESS}"
+            if [ "$RESULT" = "SUCCESS" ]; then
+              echo "=== Jenkins build REUSIT ==="
+              exit 0
+            elif [ -n "$RESULT" ]; then
+              echo "=== Jenkins build ESUAT: $RESULT ==="
+              echo "  URL build: $BUILD_URL"
+              exit 1
+            fi
+          done
+
+          echo "ERROR: Timeout dupa 35 minute"
+          exit 1
+
+  # ─── E2E — Playwright pe VPS-ul deja deployat de Jenkins ──────────────────
+  e2e:
+    name: E2E Tests (Playwright)
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Instaleaza dependinte E2E
+        run: npm ci
+        working-directory: e2e
+
+      - name: Instaleaza Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: e2e
+
+      - name: Ruleaza teste E2E
+        run: npx playwright test
+        working-directory: e2e
+        env:
+          BASE_URL: ${{ secrets.VPS_BASE_URL }}
+
+      - name: Upload raport Playwright
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+
+  # ─── Release — GitHub Release AUTOMAT (semver auto, fara tag manual) ───────
+  #     Ruleaza doar pe push pe `main`, dupa ce deploy + e2e au trecut.
+  #     Versiunea se calculeaza din ultimul tag `v*`, in functie de mesajul
+  #     de commit (conventional commits): BREAKING -> major, feat -> minor,
+  #     altfel -> patch. Tag-ul + Release-ul sunt create automat de actiune.
+  release:
+    name: Auto Release (semver)
+    needs: e2e
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Calculeaza urmatoarea versiune (semver auto)
+        id: ver
+        run: |
+          set -e
+          git fetch --tags --force --quiet || true
+
+          # Ultimul tag de forma vX.Y.Z (default v0.0.0 daca nu exista niciunul)
+          latest=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          latest=${latest:-v0.0.0}
+          echo "Ultimul tag: $latest"
+
+          base=${latest#v}
+          major=${base%%.*}
+          rest=${base#*.}
+          minor=${rest%%.*}
+          patch=${rest#*.}
+
+          # Tipul bump-ului din mesajul ultimului commit (conventional commits)
+          msg=$(git log -1 --pretty=%B)
+          if echo "$msg" | grep -qiE 'BREAKING CHANGE|!:'; then
+            major=$((major + 1)); minor=0; patch=0
+          elif echo "$msg" | grep -qiE '^feat'; then
+            minor=$((minor + 1)); patch=0
+          else
+            patch=$((patch + 1))
+          fi
+
+          next="v${major}.${minor}.${patch}"
+          echo "Urmatoarea versiune: $next"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Creaza GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ steps.ver.outputs.next }}
+          generate_release_notes: true

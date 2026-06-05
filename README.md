@@ -1,5 +1,7 @@
 # GreenCart Grocery — MDSSC CI/CD Project
 
+[![CI/CD](https://github.com/ioanamhl/mdssc_project/actions/workflows/cicd.yml/badge.svg)](https://github.com/ioanamhl/mdssc_project/actions/workflows/cicd.yml)
+
 A university project demonstrating a secure CI/CD pipeline for a grocery shop application (GreenCart), integrating MDSSC (OPSWAT MetaDefender Supply Chain Security) scanning on both source code and build artifacts.
 
 ## The Application
@@ -17,7 +19,7 @@ The pipeline is structured on two levels — **GitHub Actions** (outer orchestra
 ```
 PUSH ──> GITHUB ACTIONS (outer)
               |
-              |── Scan Code          (CodeQL)
+              |── MDSSC Scan         (OPSWAT, sursă)
               |
               |── TRIGGER JENKINS ──────────> JENKINS (inner)
               |    ^ waits                    |── MDSSC source scan
@@ -79,11 +81,11 @@ GitHub Actions orchestrates the entire flow; Jenkins is called as an inner stage
 -  Configure GitHub → Jenkins webhook
 
 ### Adi — GitHub Actions Workflows
--  Create `.github/workflows/ci.yml` (Scan Code + YAML validation)
--  Create `.github/workflows/release.yml` (automated build + deploy)
--  Configure E2E tests in workflow
--  Test that Actions trigger on every push/PR
--  Add status badge to README
+-  Creare `.github/workflows/ci.yml` (Scan Code + validare YAML)
+-  Creare `.github/workflows/release.yml` (build + deploy automat)
+-  Configurare E2E tests în workflow
+-  Testare că Actions pornesc la fiecare push/PR
+-  Adăugare badge de status în README
 
 ### Mario — End-to-End Tests & Code Scanning
 -  Configure `npm audit` for dependency scanning
@@ -106,6 +108,6 @@ mdssc_project/
 │   ├── playwright.config.js
 │   └── tests/
 ├── .github/
-│   └── workflows/    # GitHub Actions (to be added by Adi)
+│   └── workflows/    # GitHub Actions (de adăugat de Adi)
 └── docker-compose.yml
 ```

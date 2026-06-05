@@ -1,5 +1,5 @@
 // ============================================================
-// GreenCart Grocery — MDSSC Advanced CI/CD Pipeline — webhook test
+// GreenCart Grocery — MDSSC Advanced CI/CD Pipeline — pipeline test v2
 //
 // Stages:
 //   1. Checkout          — clone, tool checks, bundle source archive
@@ -137,7 +137,7 @@ pipeline {
                 }
             }
         }
-
+        
         // ----------------------------------------------------------
         // 3. SOURCE CODE SCAN
         //    Direct scan: upload source-code.tar.gz → MDSSC scans it.
@@ -178,7 +178,72 @@ pipeline {
                 }
             }
         }
+        // ----------------------------------------------------------
+        // 3.5. SECURITY SCAN 
+        //    npm audit  — scanare vulnerabilități dependențe
+        //    ESLint     — calitate cod frontend
+        //    Rapoarte JSON arhivate în Jenkins
+        // ----------------------------------------------------------
+        stage('Security Scan') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo '   SECURITY SCAN — npm audit + ESLint'
+                    echo '=========================================='
 
+                    // ── Backend: npm audit ──
+                    dir("${env.BACKEND_DIR}") {
+                        sh 'npm ci --prefer-offline 2>/dev/null || npm ci'
+                        sh 'npm audit --json > ../artifacts/backend-audit.json 2>/dev/null || true'
+
+                        sh '''node -e "
+                            const d = JSON.parse(require('fs').readFileSync('../artifacts/backend-audit.json','utf8'));
+                            const v = d.metadata && d.metadata.vulnerabilities ? d.metadata.vulnerabilities : {};
+                            console.log('');
+                            console.log('==========================================');
+                            console.log('   BACKEND npm audit REPORT');
+                            console.log('==========================================');
+                            console.log('  Critical : ' + (v.critical||0));
+                            console.log('  High     : ' + (v.high||0));
+                            console.log('  Moderate : ' + (v.moderate||0));
+                            console.log('  Low      : ' + (v.low||0));
+                            console.log('==========================================');
+                        "'''
+                    }
+
+                    // ── Frontend: npm audit ──
+                    dir("${env.FRONTEND_DIR}") {
+                        sh 'npm ci --prefer-offline 2>/dev/null || npm ci'
+                        sh 'npm audit --json > ../artifacts/frontend-audit.json 2>/dev/null || true'
+
+                        sh '''node -e "
+                            const d = JSON.parse(require('fs').readFileSync('../artifacts/frontend-audit.json','utf8'));
+                            const v = d.metadata && d.metadata.vulnerabilities ? d.metadata.vulnerabilities : {};
+                            console.log('');
+                            console.log('==========================================');
+                            console.log('   FRONTEND npm audit REPORT');
+                            console.log('==========================================');
+                            console.log('  Critical : ' + (v.critical||0));
+                            console.log('  High     : ' + (v.high||0));
+                            console.log('  Moderate : ' + (v.moderate||0));
+                            console.log('  Low      : ' + (v.low||0));
+                            console.log('==========================================');
+                        "'''
+
+                        sh 'npx eslint . --format json --output-file ../artifacts/eslint-report.json 2>/dev/null || true'
+                        echo '✅ ESLint report saved'
+                    }
+
+                    archiveArtifacts artifacts: 'artifacts/backend-audit.json, artifacts/frontend-audit.json, artifacts/eslint-report.json',
+                                    allowEmptyArchive: true,
+                                    fingerprint: true
+
+                    echo '=========================================='
+                    echo '   SECURITY SCAN COMPLETE'
+                    echo '=========================================='
+                }
+            }
+        }
         // ----------------------------------------------------------
         // 4. BUILD
         //    Install backend + frontend dependencies in parallel.
