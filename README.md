@@ -1,18 +1,18 @@
 # GreenCart Grocery — MDSSC CI/CD Project
 
-Proiect universitar ce demonstrează un pipeline CI/CD securizat pentru o aplicație de tip grocery shop (GreenCart), integrând scanare MDSSC (OPSWAT MetaDefender Supply Chain Security) atât pe codul sursă, cât și pe artefactele de build.
+A university project demonstrating a secure CI/CD pipeline for a grocery shop application (GreenCart), integrating MDSSC (OPSWAT MetaDefender Supply Chain Security) scanning on both source code and build artifacts.
 
-## Aplicația
+## The Application
 
-**GreenCart** este un magazin online de produse alimentare cu arhitectură full-stack:
+**GreenCart** is a full-stack online grocery store:
 
-- **Backend** — Node.js + Express + MongoDB (Mongoose), autentificare JWT, upload imagini via Cloudinary, plăți Stripe
+- **Backend** — Node.js + Express + MongoDB (Mongoose), JWT authentication, image upload via Cloudinary, Stripe payments
 - **Frontend** — React + Vite (SPA, served static)
-- **Infrastructură** — Docker, PM2, Nginx, DigitalOcean Droplet ($6/lună)
+- **Infrastructure** — Docker, PM2, Nginx, DigitalOcean Droplet ($6/month)
 
-## Arhitectura Pipeline-ului
+## Pipeline Architecture
 
-Pipline-ul este structurat pe două niveluri — **GitHub Actions** (orchestrator exterior) și **Jenkins** (pipeline interior), conform schemei de mai jos:
+The pipeline is structured on two levels — **GitHub Actions** (outer orchestrator) and **Jenkins** (inner pipeline), as shown below:
 
 ```
 PUSH ──> GITHUB ACTIONS (outer)
@@ -20,92 +20,92 @@ PUSH ──> GITHUB ACTIONS (outer)
               |── Scan Code          (CodeQL)
               |
               |── TRIGGER JENKINS ──────────> JENKINS (inner)
-              |    ^ așteaptă                 |── scan sursă MDSSC
-              |    |                          |── build artefact
-              |    |                          |── scan artefact MDSSC
-              |    |                          └── deploy pe VPS
-              |    └──────────────────────── întoarce verde/roșu
+              |    ^ waits                    |── MDSSC source scan
+              |    |                          |── build artifact
+              |    |                          |── MDSSC artifact scan
+              |    |                          └── deploy to VPS
+              |    └──────────────────────── returns green/red
               |
-              |── E2E Test           (Playwright pe VPS-ul tocmai deployat)
+              |── E2E Test           (Playwright on the freshly deployed VPS)
               |
-              └── Release            (tag + GitHub Release dacă tot e verde)
+              └── Release            (tag + GitHub Release if everything is green)
 ```
 
-GitHub Actions orchestrează tot fluxul; Jenkins este chemat ca o etapă internă, execută scanările MDSSC + build + deploy, după care returnează rezultatul (verde/roșu) înapoi în Actions.
+GitHub Actions orchestrates the entire flow; Jenkins is called as an inner stage, runs the MDSSC scans + build + deploy, then returns the result (green/red) back to Actions.
 
-## Stagiile Jenkins (pipeline interior)
+## Jenkins Stages (inner pipeline)
 
-| # | Stagiu | Descriere |
-|---|--------|-----------|
-| 1 | **Checkout** | Clonare repo, verificare tool-uri, creare arhivă sursă `.tar.gz` |
-| 2 | **Check Health** | Verificare server MDSSC + fetch metadate workflow (StorageId, RepositoryId) |
-| 3 | **Source Code Scan** | Upload direct arhivă sursă → MDSSC; scan indirect prin referință de branch |
-| 4 | **Build** | `npm ci` backend + frontend în paralel, `vite build`, packaging, Docker images |
-| 5 | **Artifact Scan** | Scanare MDSSC pe toate artefactele de build (frontend bundle, backend archive, Docker images) |
-| 6 | **Deploy** | PM2 restart/start backend (Node.js) + PM2 serve frontend (SPA static, port 3001) |
+| # | Stage | Description |
+|---|-------|-------------|
+| 1 | **Checkout** | Clone repo, verify tools, create source archive `.tar.gz` |
+| 2 | **Check Health** | Verify MDSSC server + fetch workflow metadata (StorageId, RepositoryId) |
+| 3 | **Source Code Scan** | Direct upload of source archive → MDSSC; indirect scan via branch reference |
+| 4 | **Build** | `npm ci` backend + frontend in parallel, `vite build`, packaging, Docker images |
+| 5 | **Artifact Scan** | MDSSC scan on all build artifacts (frontend bundle, backend archive, Docker images) |
+| 6 | **Deploy** | PM2 restart/start backend (Node.js) + PM2 serve frontend (static SPA, port 3001) |
 
-## MDSSC API — metode folosite
+## MDSSC API — Methods Used
 
-| Metodă | Endpoint | Rol |
-|--------|----------|-----|
-| GET | `/api/v1/health` | Health check server MDSSC |
-| GET | `/api/v1/workflows/{workflowId}` | Fetch metadate workflow |
-| POST | `/api/v1/scans/direct` | Upload fișier + inițiere scanare |
-| GET | `/api/v1/scans/{id}/overview` | Polling status scanare |
-| GET | `/api/v1/scans/{id}` | Rezultat final scanare |
-| POST | `/api/v1/scans` | Scanare indirectă prin referință repo/branch |
+| Method | Endpoint | Role |
+|--------|----------|------|
+| GET | `/api/v1/health` | MDSSC server health check |
+| GET | `/api/v1/workflows/{workflowId}` | Fetch workflow metadata |
+| POST | `/api/v1/scans/direct` | File upload + scan initiation |
+| GET | `/api/v1/scans/{id}/overview` | Scan status polling |
+| GET | `/api/v1/scans/{id}` | Final scan result |
+| POST | `/api/v1/scans` | Indirect scan via repo/branch reference |
 
-## Infrastructură
+## Infrastructure
 
-- **Jenkins** rulează pe un **DigitalOcean Droplet** ($6/lună)
-- **Stack pe VPS**: Node.js, MongoDB, Nginx, PM2, Docker
-- **Jenkins polling SCM**: la fiecare 2 minute (`H/2 * * * *`)
-- **Vulnerability threshold**: configurabil (critical / high / medium / low)
+- **Jenkins** runs on a **DigitalOcean Droplet** ($6/month)
+- **VPS stack**: Node.js, MongoDB, Nginx, PM2, Docker
+- **Jenkins SCM polling**: every 2 minutes (`H/2 * * * *`)
+- **Vulnerability threshold**: configurable (critical / high / medium / low)
 
-## Roadmap — Responsabilități echipă
+## Roadmap — Team Responsibilities
 
-### Vera — Infrastructură & Jenkins
--  Creare VM în cloud (DigitalOcean Droplet)
--  Instalare Jenkins pe VM
--  Configurare Jenkins (pluginuri, credențiale)
--  Instalare Node.js, MongoDB, Nginx pe VM
--  Configurare PM2 pentru rularea aplicației
--  Documentație infrastructură
+### Vera — Infrastructure & Jenkins
+-  Create VM in the cloud (DigitalOcean Droplet)
+-  Install Jenkins on VM
+-  Configure Jenkins (plugins, credentials)
+-  Install Node.js, MongoDB, Nginx on VM
+-  Configure PM2 for running the application
+-  Infrastructure documentation
 
 ### Ioana — GitHub & Pipeline
--  Creare repo GitHub + invitare echipă
--  Clone cod sursă și upload pe repo-ul echipei
--  Scriere Jenkinsfile cu stagiile: Install → Scan → Test → Deploy
--  Configurare webhook GitHub → Jenkins
+-  Create GitHub repo + invite team
+-  Clone source code and push to team repo
+-  Write Jenkinsfile with stages: Install → Scan → Test → Deploy
+-  Configure GitHub → Jenkins webhook
 
 ### Adi — GitHub Actions Workflows
--  Creare `.github/workflows/ci.yml` (Scan Code + validare YAML)
--  Creare `.github/workflows/release.yml` (build + deploy automat)
--  Configurare E2E tests în workflow
--  Testare că Actions pornesc la fiecare push/PR
--  Adăugare badge de status în README
+-  Create `.github/workflows/ci.yml` (Scan Code + YAML validation)
+-  Create `.github/workflows/release.yml` (automated build + deploy)
+-  Configure E2E tests in workflow
+-  Test that Actions trigger on every push/PR
+-  Add status badge to README
 
-### Mario — End-to-End Tests & Scanare Cod
--  Configurare `npm audit` pentru scanare dependențe
--  Integrare ESLint pentru calitatea codului
--  Integrare Snyk sau OWASP pentru vulnerabilități
--  Configurare rapoarte de scanare (output JSON/HTML)
--  Testare că scanarea detectează probleme reale
--  Documentare cum se citesc rapoartele
+### Mario — End-to-End Tests & Code Scanning
+-  Configure `npm audit` for dependency scanning
+-  Integrate ESLint for code quality
+-  Integrate Snyk or OWASP for vulnerabilities
+-  Configure scan reports (JSON/HTML output)
+-  Test that scanning detects real issues
+-  Document how to read the reports
 
-## Structura Repo
+## Repository Structure
 
 ```
 mdssc_project/
 ├── backend/          # Node.js + Express API
 ├── frontend/         # React + Vite SPA
 ├── ci/
-│   ├── Jenkinsfile           # Pipeline Jenkins complet
-│   └── mdsscAdvanced.groovy  # Biblioteca MDSSC helper
-├── e2e/              # Playwright E2E tests (de adăugat de Mario)
+│   ├── Jenkinsfile           # Full Jenkins pipeline
+│   └── mdsscAdvanced.groovy  # MDSSC helper library
+├── e2e/              # Playwright E2E tests (to be added by Mario)
 │   ├── playwright.config.js
 │   └── tests/
 ├── .github/
-│   └── workflows/    # GitHub Actions (de adăugat de Adi)
+│   └── workflows/    # GitHub Actions (to be added by Adi)
 └── docker-compose.yml
 ```
