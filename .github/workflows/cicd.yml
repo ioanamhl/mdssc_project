@@ -87,24 +87,24 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
+    env:
+      JENKINS_URL: ${{ secrets.JENKINS_VPS_URL }}
+      JENKINS_USER: ${{ secrets.JENKINS_USER }}
+      JENKINS_API_TOKEN: ${{ secrets.MDSSC_JENKINS_API_TOKEN }}
+      JENKINS_JOB: proiect-mdssc
+      JENKINS_TIMEOUT_MIN: ${{ inputs.jenkins_timeout_minutes || '30' }}
     steps:
-      - name: Porneste pipeline-ul Jenkins si asteapta
-        env:
-          JENKINS_URL: ${{ secrets.JENKINS_VPS_URL }}
-          JENKINS_USER: ${{ secrets.JENKINS_USER }}
-          JENKINS_API_TOKEN: ${{ secrets.MDSSC_JENKINS_API_TOKEN }}
-          JENKINS_REMOTE_TOKEN: ${{ secrets.JENKINS_REMOTE_TOKEN }}
-          JENKINS_JOB: proiect-mdssc
-          JENKINS_TIMEOUT_MIN: ${{ inputs.jenkins_timeout_minutes || '30' }}
+      - name: "1. Obtine token de securitate de la Jenkins"
         run: |
           set -e
-
-          echo "=== Obtin CSRF crumb ==="
           CRUMB=$(curl -s -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
             "$JENKINS_URL/crumbIssuer/api/xml?xpath=concat(//crumbRequestField,\":\",//crumb)")
           echo "Crumb: $CRUMB"
+          echo "CRUMB=$CRUMB" >> "$GITHUB_ENV"
 
-          echo "=== Triggering Jenkins job: $JENKINS_JOB ==="
+      - name: "2. Triggereaza pipeline-ul Jenkins (proiect-mdssc)"
+        run: |
+          set -e
           curl -s -X POST \
             "$JENKINS_URL/job/$JENKINS_JOB/buildWithParameters" \
             -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
@@ -121,8 +121,11 @@ jobs:
 
           QUEUE_URL=$(grep -i "^Location:" /tmp/trigger_headers.txt | tr -d '\r' | awk '{print $2}')
           echo "Queue URL: $QUEUE_URL"
+          echo "QUEUE_URL=$QUEUE_URL" >> "$GITHUB_ENV"
 
-          echo "=== Astept pornirea build-ului (max 2 min) ==="
+      - name: "3. Asteapta pornirea build-ului (Checkout + Check Health)"
+        run: |
+          set -e
           BUILD_URL=""
           for i in $(seq 1 24); do
             sleep 5
@@ -140,7 +143,11 @@ jobs:
             echo "ERROR: Build-ul nu a pornit in 2 minute"
             exit 1
           fi
+          echo "BUILD_URL=$BUILD_URL" >> "$GITHUB_ENV"
 
+      - name: "4. Monitorizeaza Jenkins: Source Scan -> Build -> Artifact Scan -> Deploy"
+        run: |
+          set -e
           ITERATIONS=$(( JENKINS_TIMEOUT_MIN * 60 / 15 ))
           echo "=== Polling status build (max ${JENKINS_TIMEOUT_MIN} min) ==="
           for i in $(seq 1 $ITERATIONS); do
