@@ -87,6 +87,12 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
+      actions: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy-pages.outputs.page_url }}
     env:
       JENKINS_URL: ${{ secrets.JENKINS_VPS_URL }}
       JENKINS_USER: ${{ secrets.JENKINS_USER }}
@@ -94,6 +100,10 @@ jobs:
       JENKINS_JOB: proiect-mdssc
       JENKINS_TIMEOUT_MIN: ${{ inputs.jenkins_timeout_minutes || '30' }}
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
       - name: "1. Obtine token de securitate de la Jenkins"
         run: |
           set -e
@@ -151,20 +161,6 @@ jobs:
           ITERATIONS=$(( JENKINS_TIMEOUT_MIN * 60 / 15 ))
           echo "=== Polling status build (max ${JENKINS_TIMEOUT_MIN} min) ==="
 
-          # Scrie un raport Markdown cu stadiul fiecarei etape Jenkins in Job Summary
-          # (apare ca tabel pe pagina rezultatelor acestui job, sub lista de pasi)
-          write_summary() {
-            {
-              echo "### Jenkins — \`$JENKINS_JOB\` — stadiu etape pipeline"
-              echo ""
-              curl -s -u "$JENKINS_USER:$JENKINS_API_TOKEN" "${BUILD_URL}wfapi/describe" | \
-                python3 -c "import sys, json; d = json.load(sys.stdin); icons = {'SUCCESS': '✅ SUCCESS', 'IN_PROGRESS': '🔄 IN_PROGRESS', 'FAILED': '❌ FAILED', 'NOT_EXECUTED': '⏳ NOT_EXECUTED', 'PAUSED_PENDING_INPUT': '⏸️ PAUSED'}; rows = '\n'.join('| ' + s.get('name', '?') + ' | ' + icons.get(s.get('status'), s.get('status', '?')) + ' |' for s in d.get('stages', [])); print('| Etapa | Status |\n|---|---|\n' + rows)" \
-                2>/dev/null
-              echo ""
-              echo "**Build Jenkins:** $BUILD_URL"
-            } >> "$GITHUB_STEP_SUMMARY"
-          }
-
           for i in $(seq 1 $ITERATIONS); do
             sleep 15
 
@@ -186,19 +182,59 @@ jobs:
 
             if [ "$RESULT" = "SUCCESS" ]; then
               echo "=== Jenkins build REUSIT ==="
-              write_summary
               exit 0
             elif [ -n "$RESULT" ]; then
               echo "=== Jenkins build ESUAT: $RESULT ==="
               echo "  URL build: $BUILD_URL"
-              write_summary
               exit 1
             fi
           done
 
           echo "ERROR: Timeout dupa ${JENKINS_TIMEOUT_MIN} minute"
-          write_summary
           exit 1
+
+      - name: "5. Scrie dashboard combinat in Job Summary (GitHub Actions + Jenkins)"
+        if: always()
+        env:
+          JOBS_API_URL: https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs
+          GH_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/write_pipeline_summary.py
+
+      # Pasii 6-9: publica acelasi dashboard ca pagina HTML stilizata (noduri +
+      # sageti, in stilul GitHub/Jenkins) pe GitHub Pages. Spre deosebire de
+      # Job Summary (care accepta doar Markdown sanitizat), aici avem CSS complet.
+      # Link-ul ramane mereu acelasi si arata mereu ultima stare cunoscuta --
+      # un "dashboard live", regenerat dupa fiecare rulare. Tokenurile NU ajung
+      # in browser: datele sunt preluate aici, server-side, cu secretele din
+      # Actions; pagina publicata contine doar rezultatul (nume + status).
+      # `continue-on-error` ca o problema la publicarea paginii sa nu blocheze
+      # restul pipeline-ului (e2e/release).
+      - name: "6. Genereaza pagina live (dashboard GitHub Pages)"
+        if: always()
+        continue-on-error: true
+        env:
+          JOBS_API_URL: https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs
+          GH_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SITE_DIR: _site
+        run: python3 .github/scripts/generate_pages_site.py
+
+      - name: "7. Configureaza GitHub Pages"
+        if: always()
+        continue-on-error: true
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+
+      - name: "8. Incarca pagina ca artefact Pages"
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: _site
+
+      - name: "9. Publica pe GitHub Pages"
+        if: always()
+        continue-on-error: true
+        id: deploy-pages
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
 
   # ─── E2E — Playwright pe VPS-ul deja deployat de Jenkins ──────────────────
   e2e:
@@ -293,3 +329,4 @@ jobs:
         with:
           tag_name: ${{ steps.ver.outputs.next }}
           generate_release_notes: true
+          files: ci/Jenkinsfile
