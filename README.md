@@ -81,11 +81,11 @@ GitHub Actions orchestrates the entire flow; Jenkins is called as an inner stage
 -  Configure GitHub → Jenkins webhook
 
 ### Adi — GitHub Actions Workflows
--  Creare `.github/workflows/ci.yml` (Scan Code + validare YAML)
--  Creare `.github/workflows/release.yml` (build + deploy automat)
--  Configurare E2E tests în workflow
--  Testare că Actions pornesc la fiecare push/PR
--  Adăugare badge de status în README
+-  Create `.github/workflows/ci.yml` (Scan Code + YAML validation)
+-  Create `.github/workflows/release.yml` (automated build + deploy)
+-  Configure E2E tests in workflow
+-  Test that Actions trigger on every push/PR
+-  Add status badge to README
 
 ### Mario — End-to-End Tests & Code Scanning
 -  Configure `npm audit` for dependency scanning
