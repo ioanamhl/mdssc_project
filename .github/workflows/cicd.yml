@@ -59,7 +59,7 @@ jobs:
       - name: Scanare MDSSC (secrete + vulnerabilitati + malware + SBOM)
         env:
           MDSSC_SERVER: ${{ secrets.MDSSC_SERVER }}
-          MDSSC_API_KEY: ${{ secrets.MDSSC_API_KEY }}
+          MDSSC_API_KEY: ${{ secrets.MDSSC_JENKINS_API_TOKEN }}
         run: |
           set -e
           # Excludem node_modules/.git/build din scanare; raman manifestele de dependinte
