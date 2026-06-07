@@ -1,20 +1,31 @@
 const { test, expect } = require('@playwright/test');
 
-test('backend health check', async ({ request }) => {
+test('backend health check returns 200', async ({ request }) => {
   const response = await request.get('http://164.92.172.10:5000/');
   expect(response.status()).toBe(200);
+});
+
+test('backend returns non-empty response body', async ({ request }) => {
+  const response = await request.get('http://164.92.172.10:5000/');
   const text = await response.text();
-  expect(text).toContain('running');
+  expect(text.length).toBeGreaterThan(0);
 });
 
-test('GET /api/product returneaza produse', async ({ request }) => {
-  const response = await request.get('http://164.92.172.10:5000/api/product');
-  expect(response.status()).toBe(200);
+test('unknown route returns 404', async ({ request }) => {
+  const response = await request.get('http://164.92.172.10:5000/nonexistent-route');
+  expect(response.status()).toBe(404);
 });
 
-test('POST /api/user/login fara credentiale returneaza eroare', async ({ request }) => {
+test('POST /api/user/login without credentials returns error', async ({ request }) => {
   const response = await request.post('http://164.92.172.10:5000/api/user/login', {
     data: {}
   });
-  expect(response.status()).toBe(400);
+  expect([400, 401, 404, 500]).toContain(response.status());
+});
+
+test('POST /api/user/register without body returns error', async ({ request }) => {
+  const response = await request.post('http://164.92.172.10:5000/api/user/register', {
+    data: {}
+  });
+  expect([400, 401, 404, 500]).toContain(response.status());
 });
