@@ -139,47 +139,7 @@ pipeline {
         }
         
         // ----------------------------------------------------------
-        // 3. SOURCE CODE SCAN
-        //    Direct scan: upload source-code.tar.gz → MDSSC scans it.
-        //    Indirect scan: MDSSC pulls the git branch itself (no upload).
-        //    Both run before build so a dirty codebase never gets built.
-        // ----------------------------------------------------------
-        stage('Source Code Scan') {
-            steps {
-                script {
-                    env.MDSSC_SOURCE_SCAN_ID = ''
-                    env.MDSSC_REPO_SCAN_ID   = ''
-
-                    // API methods 3 + 4 + 5: POST /scans/direct → poll → GET /scans/{id}
-                    if (params.RUN_SOURCE_SCAN) {
-                        env.MDSSC_SOURCE_SCAN_ID = mdssc.scanFileDirect(
-                            path : "${ARTIFACT_DIR}/source-code.tar.gz",
-                            label: 'greencart-source-code'
-                        ) ?: ''
-                        echo "Source scan ID: ${env.MDSSC_SOURCE_SCAN_ID}"
-                    }
-
-                    // API methods 6 + 4 + 5: POST /scans (indirect) → poll → GET /scans/{id}
-                    if (params.RUN_REPO_SCAN && params.MDSSC_WORKFLOW_ID?.trim()) {
-                        def branchName = sh(
-                            script: 'git rev-parse --abbrev-ref HEAD',
-                            returnStdout: true
-                        ).trim()
-                        if (branchName == 'HEAD') branchName = 'main'
-
-                        env.MDSSC_REPO_SCAN_ID = mdssc.scanRepositoryIndirect(
-                            [branch: branchName, label: "greencart-repo-${branchName}"],
-                            [storageId: env.MDSSC_WF_STORAGE_ID ?: '', repositoryId: env.MDSSC_WF_REPOSITORY_ID ?: '']
-                        ) ?: ''
-                        echo "Indirect repo scan ID: ${env.MDSSC_REPO_SCAN_ID}"
-                    } else if (params.RUN_REPO_SCAN) {
-                        echo 'Indirect scan skipped — MDSSC_WORKFLOW_ID not set.'
-                    }
-                }
-            }
-        }
-        // ----------------------------------------------------------
-        // 3.5. SECURITY SCAN 
+        // 2.5. SECURITY SCAN 
         //    npm audit  — scanare vulnerabilități dependențe
         //    ESLint     — calitate cod frontend
         //    Rapoarte JSON arhivate în Jenkins
@@ -241,6 +201,46 @@ pipeline {
                     echo '=========================================='
                     echo '   SECURITY SCAN COMPLETE'
                     echo '=========================================='
+                }
+            }
+        }
+        // ----------------------------------------------------------
+        // 3. SOURCE CODE SCAN
+        //    Direct scan: upload source-code.tar.gz → MDSSC scans it.
+        //    Indirect scan: MDSSC pulls the git branch itself (no upload).
+        //    Both run before build so a dirty codebase never gets built.
+        // ----------------------------------------------------------
+        stage('Source Code Scan') {
+            steps {
+                script {
+                    env.MDSSC_SOURCE_SCAN_ID = ''
+                    env.MDSSC_REPO_SCAN_ID   = ''
+
+                    // API methods 3 + 4 + 5: POST /scans/direct → poll → GET /scans/{id}
+                    if (params.RUN_SOURCE_SCAN) {
+                        env.MDSSC_SOURCE_SCAN_ID = mdssc.scanFileDirect(
+                            path : "${ARTIFACT_DIR}/source-code.tar.gz",
+                            label: 'greencart-source-code'
+                        ) ?: ''
+                        echo "Source scan ID: ${env.MDSSC_SOURCE_SCAN_ID}"
+                    }
+
+                    // API methods 6 + 4 + 5: POST /scans (indirect) → poll → GET /scans/{id}
+                    if (params.RUN_REPO_SCAN && params.MDSSC_WORKFLOW_ID?.trim()) {
+                        def branchName = sh(
+                            script: 'git rev-parse --abbrev-ref HEAD',
+                            returnStdout: true
+                        ).trim()
+                        if (branchName == 'HEAD') branchName = 'main'
+
+                        env.MDSSC_REPO_SCAN_ID = mdssc.scanRepositoryIndirect(
+                            [branch: branchName, label: "greencart-repo-${branchName}"],
+                            [storageId: env.MDSSC_WF_STORAGE_ID ?: '', repositoryId: env.MDSSC_WF_REPOSITORY_ID ?: '']
+                        ) ?: ''
+                        echo "Indirect repo scan ID: ${env.MDSSC_REPO_SCAN_ID}"
+                    } else if (params.RUN_REPO_SCAN) {
+                        echo 'Indirect scan skipped — MDSSC_WORKFLOW_ID not set.'
+                    }
                 }
             }
         }
