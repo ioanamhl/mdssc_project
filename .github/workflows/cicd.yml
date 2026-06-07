@@ -150,23 +150,54 @@ jobs:
           set -e
           ITERATIONS=$(( JENKINS_TIMEOUT_MIN * 60 / 15 ))
           echo "=== Polling status build (max ${JENKINS_TIMEOUT_MIN} min) ==="
+
+          # Scrie un raport Markdown cu stadiul fiecarei etape Jenkins in Job Summary
+          # (apare ca tabel pe pagina rezultatelor acestui job, sub lista de pasi)
+          write_summary() {
+            {
+              echo "### Jenkins — \`$JENKINS_JOB\` — stadiu etape pipeline"
+              echo ""
+              curl -s -u "$JENKINS_USER:$JENKINS_API_TOKEN" "${BUILD_URL}wfapi/describe" | \
+                python3 -c "import sys, json; d = json.load(sys.stdin); icons = {'SUCCESS': '✅ SUCCESS', 'IN_PROGRESS': '🔄 IN_PROGRESS', 'FAILED': '❌ FAILED', 'NOT_EXECUTED': '⏳ NOT_EXECUTED', 'PAUSED_PENDING_INPUT': '⏸️ PAUSED'}; rows = '\n'.join('| ' + s.get('name', '?') + ' | ' + icons.get(s.get('status'), s.get('status', '?')) + ' |' for s in d.get('stages', [])); print('| Etapa | Status |\n|---|---|\n' + rows)" \
+                2>/dev/null
+              echo ""
+              echo "**Build Jenkins:** $BUILD_URL"
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
           for i in $(seq 1 $ITERATIONS); do
             sleep 15
+
+            # Progres pe etape, citit direct din Jenkins (necesita pluginul "Pipeline: REST API")
+            STAGES=$(curl -s -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
+              "${BUILD_URL}wfapi/describe" | \
+              python3 -c "import sys, json; d = json.load(sys.stdin); tags = {'SUCCESS': 'OK', 'IN_PROGRESS': 'RUN', 'FAILED': 'FAIL', 'NOT_EXECUTED': '--'}; print(' | '.join(s.get('name', '?') + ':' + tags.get(s.get('status'), '--') for s in d.get('stages', [])))" \
+              2>/dev/null || echo "")
+
             RESULT=$(curl -s -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
               "${BUILD_URL}api/json" | \
               python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result') or '')" 2>/dev/null || echo "")
-            echo "  [$i/$ITERATIONS] status: ${RESULT:-IN_PROGRESS}"
+
+            if [ -n "$STAGES" ]; then
+              echo "  [$i/$ITERATIONS] $STAGES   (overall: ${RESULT:-IN_PROGRESS})"
+            else
+              echo "  [$i/$ITERATIONS] status: ${RESULT:-IN_PROGRESS}"
+            fi
+
             if [ "$RESULT" = "SUCCESS" ]; then
               echo "=== Jenkins build REUSIT ==="
+              write_summary
               exit 0
             elif [ -n "$RESULT" ]; then
               echo "=== Jenkins build ESUAT: $RESULT ==="
               echo "  URL build: $BUILD_URL"
+              write_summary
               exit 1
             fi
           done
 
           echo "ERROR: Timeout dupa ${JENKINS_TIMEOUT_MIN} minute"
+          write_summary
           exit 1
 
   # ─── E2E — Playwright pe VPS-ul deja deployat de Jenkins ──────────────────
