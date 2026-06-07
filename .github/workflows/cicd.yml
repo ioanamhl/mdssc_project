@@ -53,7 +53,7 @@ jobs:
       - name: Scanare MDSSC (secrete + vulnerabilitati + malware + SBOM)
         env:
           MDSSC_SERVER: ${{ secrets.MDSSC_SERVER }}
-          MDSSC_JENKINS_API_TOKEN: ${{ secrets.MDSSC_JENKINS_API_TOKEN }}
+          MDSSC_API_KEY: ${{ secrets.MDSSC_JENKINS_API_TOKEN }}
         run: |
           set -e
           # Excludem node_modules/.git/build din scanare; raman manifestele de dependinte
@@ -61,7 +61,7 @@ jobs:
           rsync -a --exclude='.git' --exclude='node_modules' --exclude='dist' --exclude='build' ./ /tmp/mdssc-src/
           docker run --rm \
             -e MDSSC_SERVER="$MDSSC_SERVER" \
-            -e MDSSC_JENKINS_API_TOKEN="$MDSSC_JENKINS_API_TOKEN" \
+            -e MDSSC_API_KEY="$MDSSC_API_KEY" \
             -e FAIL_ON_VULNERABILITIES="true" \
             -e VULNERABILITY_THRESHOLD="high" \
             -e SCAN_TIMEOUT="900" \
