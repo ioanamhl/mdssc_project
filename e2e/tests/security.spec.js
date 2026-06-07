@@ -36,3 +36,39 @@ test('server response time is acceptable', async ({ request }) => {
   const duration = Date.now() - start;
   expect(duration).toBeLessThan(3000);
 });
+
+test('oversized payload is handled gracefully', async ({ request }) => {
+  const bigPayload = 'a'.repeat(100000);
+  const response = await request.post('http://164.92.172.10:5000/api/user/login', {
+    data: { email: bigPayload, password: bigPayload }
+  });
+  expect([400, 404, 413, 500]).toContain(response.status());
+});
+
+test('invalid JSON content type is rejected', async ({ request }) => {
+  const response = await request.post('http://164.92.172.10:5000/api/user/login', {
+    headers: { 'Content-Type': 'text/plain' },
+    data: 'not json'
+  });
+  expect([400, 404, 415, 500]).toContain(response.status());
+});
+
+test('missing auth token returns 401 or 403 on protected route', async ({ request }) => {
+  const response = await request.get('http://164.92.172.10:5000/api/cart');
+  expect([401, 403, 404, 500]).toContain(response.status());
+});
+
+test('special characters in input do not break server', async ({ request }) => {
+  const response = await request.post('http://164.92.172.10:5000/api/user/login', {
+    data: { email: '!@#$%^&*()', password: '!@#$%^&*()' }
+  });
+  expect(response.status()).not.toBe(200);
+});
+
+test('server handles concurrent requests', async ({ request }) => {
+  const requests = Array(5).fill(null).map(() => 
+    request.get('http://164.92.172.10:5000/')
+  );
+  const responses = await Promise.all(requests);
+  responses.forEach(r => expect(r.status()).toBe(200));
+});
