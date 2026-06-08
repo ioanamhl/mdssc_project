@@ -279,9 +279,14 @@ String _resolveWorkflowId(Map config, String baseUrl, String header) {
                     const raw = JSON.parse(fs.readFileSync('.mdssc-workflows-list.json', 'utf8'));
                     const list = Array.isArray(raw) ? raw
                                : (raw.workflows || raw.Workflows || raw.data || raw.Data || []);
-                    const first = list[0] || {};
-                    const id = first.Id || first.id || first.WorkflowId || first.workflowId || '';
-                    console.log('Default workflow ID: ' + id);
+                    console.log('=== WORKFLOWS LIST (raw) ===');
+                    console.log(JSON.stringify(list, null, 2));
+                    console.log('=== END WORKFLOWS LIST ===');
+                    const getId = w => w.Id || w.id || w.WorkflowId || w.workflowId || '';
+                    const isDefault = w => w.IsDefault || w.isDefault || w.Default || w.default || false;
+                    const def = list.find(w => isDefault(w)) || list[0] || {};
+                    const id = getId(def);
+                    console.log('Selected workflow ID: ' + id + (isDefault(def) ? ' (marked as default)' : ' (first in list)'));
                     fs.writeFileSync('.mdssc-wf-auto-id.txt', String(id));
                 "
             fi
