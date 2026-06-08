@@ -26,9 +26,9 @@ def mdssc
 pipeline {
     agent any
 
-    triggers {
-        githubPush()
-    }
+    //triggers {
+    //    githubPush()
+    //}
     ///small chnage to trigger build
     options {
         timestamps()
@@ -219,7 +219,7 @@ pipeline {
         //    Indirect scan: MDSSC pulls the git branch directly from GitHub.
         //    Runs before build so a dirty codebase never gets built.
         // ----------------------------------------------------------
-        stage('Source Code Scan') {
+        stage('MDSSC-Source Code Scan') {
             steps {
                 script {
                     env.MDSSC_REPO_SCAN_ID = ''
