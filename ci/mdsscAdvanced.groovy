@@ -279,21 +279,13 @@ String _resolveWorkflowId(Map config, String baseUrl, String header) {
                     const raw = JSON.parse(fs.readFileSync('.mdssc-workflows-list.json', 'utf8'));
                     const list = Array.isArray(raw) ? raw
                                : (raw.workflows || raw.Workflows || raw.data || raw.Data || []);
-                    const getId = w => w.Id || w.id || w.WorkflowId || w.workflowId || '';
-                    const isGitHub = w =>
-                        (w.name || '').toLowerCase().includes('github') ||
-                        (w.scanSources || []).some(s =>
-                            (s.serviceName || '').toLowerCase().includes('github') ||
-                            (s.repositories || []).some(r =>
-                                (r.type       || '').toLowerCase().includes('github') ||
-                                (r.connection || '').toLowerCase().includes('github')
-                            )
-                        );
-                    const found = list.find(w => isGitHub(w));
-                    const def   = found || list[0] || {};
-                    const id    = getId(def);
-                    const how   = found ? '(GitHub workflow)' : '(first in list — no GitHub workflow found)';
-                    console.log('Selected workflow ID: ' + id + ' ' + how);
+                    const getId  = w => w.id || w.Id || w.WorkflowId || w.workflowId || '';
+                    const getName = w => w.name || w.Name || w.WorkflowName || w.workflowName || '';
+                    const found  = list.find(w => getName(w) === 'github-ioana');
+                    const def    = found || list[0] || {};
+                    const id     = getId(def);
+                    console.log('Available workflows: ' + list.map(w => getName(w) + '(' + getId(w) + ')').join(', '));
+                    console.log('Selected workflow: ' + getName(def) + ' — ID: ' + id);
                     fs.writeFileSync('.mdssc-wf-auto-id.txt', String(id));
                 "
             fi
