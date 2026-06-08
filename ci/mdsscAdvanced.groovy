@@ -279,14 +279,21 @@ String _resolveWorkflowId(Map config, String baseUrl, String header) {
                     const raw = JSON.parse(fs.readFileSync('.mdssc-workflows-list.json', 'utf8'));
                     const list = Array.isArray(raw) ? raw
                                : (raw.workflows || raw.Workflows || raw.data || raw.Data || []);
-                    console.log('=== WORKFLOWS LIST (raw) ===');
-                    console.log(JSON.stringify(list, null, 2));
-                    console.log('=== END WORKFLOWS LIST ===');
                     const getId = w => w.Id || w.id || w.WorkflowId || w.workflowId || '';
-                    const isDefault = w => w.IsDefault || w.isDefault || w.Default || w.default || false;
-                    const def = list.find(w => isDefault(w)) || list[0] || {};
-                    const id = getId(def);
-                    console.log('Selected workflow ID: ' + id + (isDefault(def) ? ' (marked as default)' : ' (first in list)'));
+                    const isGitHub = w =>
+                        (w.name || '').toLowerCase().includes('github') ||
+                        (w.scanSources || []).some(s =>
+                            (s.serviceName || '').toLowerCase().includes('github') ||
+                            (s.repositories || []).some(r =>
+                                (r.type       || '').toLowerCase().includes('github') ||
+                                (r.connection || '').toLowerCase().includes('github')
+                            )
+                        );
+                    const found = list.find(w => isGitHub(w));
+                    const def   = found || list[0] || {};
+                    const id    = getId(def);
+                    const how   = found ? '(GitHub workflow)' : '(first in list — no GitHub workflow found)';
+                    console.log('Selected workflow ID: ' + id + ' ' + how);
                     fs.writeFileSync('.mdssc-wf-auto-id.txt', String(id));
                 "
             fi
