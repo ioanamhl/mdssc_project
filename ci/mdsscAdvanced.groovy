@@ -3,11 +3,12 @@
 //
 // API methods used:
 //   1. GET  /api/v1/health (+ /version + /scans?limit=1 fallbacks)
-//   2. GET  /api/v1/workflows/{workflowId}
-//   3. POST /api/v1/scans/direct          — upload file directly
-//   4. GET  /api/v1/scans/{scanId}/overview — rich poll (progress %, malware, secrets, blocked-licenses)
-//   5. GET  /api/v1/scans/{scanId}         — full detailed results
-//   6. POST /api/v1/scans                  — indirect scan by repository reference (no file upload)
+//   2. GET  /api/v1/workflows             — list all workflows (auto-detect default)
+//   3. GET  /api/v1/workflows/{workflowId}
+//   4. POST /api/v1/scans/direct          — upload file directly
+//   5. GET  /api/v1/scans/{scanId}/overview — rich poll (progress %, malware, secrets, blocked-licenses)
+//   6. GET  /api/v1/scans/{scanId}         — full detailed results
+//   7. POST /api/v1/scans                  — indirect scan by repository reference (no file upload)
 // ============================================================
 
 // ---- Private helpers ----
@@ -196,9 +197,9 @@ String _summaryScript(String resultFile, String overviewFile, String scanIdFile,
         console.log('==========================================');
         console.log('');
 
-        const order    = ['low','medium','high','critical'];
+        const order     = ['low','medium','high','critical'];
         const threshIdx = order.indexOf(${_shellQuote(threshold)});
-        const failing  = order.filter(s => order.indexOf(s) >= threshIdx).some(s => counts[s] > 0);
+        const failing   = threshIdx >= 0 && order.filter(s => order.indexOf(s) >= threshIdx).some(s => counts[s] > 0);
         if (${failOnVuln} && failing) {
             console.error('FAIL: Vulnerabilities found at or above threshold: ${threshold}');
             process.exit(2);
@@ -249,19 +250,61 @@ void checkHealth(Map config = [:]) {
 }
 
 // ============================================================
-// 2. Fetch Workflow Details
+// 2. Auto-resolve Workflow ID
+//    If MDSSC_WORKFLOW_ID is set, use it directly.
+//    Otherwise call GET /api/v1/workflows and pick the first workflow.
+// ============================================================
+String _resolveWorkflowId(Map config, String baseUrl, String header) {
+    String wfId = _workflowId(config)
+    if (wfId) return wfId
+
+    echo "MDSSC: No MDSSC_WORKFLOW_ID set — fetching default workflow from list..."
+
+    withCredentials([string(credentialsId: _credId(config), variable: 'MDSSC_API_KEY')]) {
+        sh """
+            set -eu
+            http_code=\$(curl -sS -w '%{http_code}' -o .mdssc-workflows-list.json \\
+                --max-time 30 \\
+                -H ${_shellQuote("${header}: ")}"\$MDSSC_API_KEY" \\
+                -H 'Content-Type: application/json' \\
+                ${_shellQuote("${baseUrl}/workflows")})
+            echo "GET /workflows -> HTTP \$http_code"
+
+            if [ "\$http_code" -lt 200 ] || [ "\$http_code" -ge 300 ]; then
+                echo "WARNING: Could not fetch workflows list (HTTP \$http_code)."
+                echo "" > .mdssc-wf-auto-id.txt
+            else
+                node -e "
+                    const fs = require('fs');
+                    const raw = JSON.parse(fs.readFileSync('.mdssc-workflows-list.json', 'utf8'));
+                    const list = Array.isArray(raw) ? raw
+                               : (raw.workflows || raw.Workflows || raw.data || raw.Data || []);
+                    const first = list[0] || {};
+                    const id = first.Id || first.id || first.WorkflowId || first.workflowId || '';
+                    console.log('Default workflow ID: ' + id);
+                    fs.writeFileSync('.mdssc-wf-auto-id.txt', String(id));
+                "
+            fi
+        """
+    }
+
+    return sh(script: 'cat .mdssc-wf-auto-id.txt 2>/dev/null || echo ""', returnStdout: true).trim()
+}
+
+// ============================================================
+// 3. Fetch Workflow Details
 //    GET /api/v1/workflows/{workflowId}
 // ============================================================
 Map fetchWorkflow(Map config = [:]) {
-    String workflowId = _workflowId(config)
-    if (!workflowId) {
-        echo "MDSSC: No MDSSC_WORKFLOW_ID set — skipping workflow fetch."
-        return [storageId: '', repositoryId: '', repositoryName: '', workflowName: '']
-    }
-
     String server  = _server(config)
     String baseUrl = _apiBaseUrl(server)
     String header  = _apiKeyHeader(config)
+
+    String workflowId = _resolveWorkflowId(config, baseUrl, header)
+    if (!workflowId) {
+        echo "MDSSC: No workflow found — skipping workflow fetch."
+        return [storageId: '', repositoryId: '', repositoryName: '', workflowName: '']
+    }
 
     withCredentials([string(credentialsId: _credId(config), variable: 'MDSSC_API_KEY')]) {
         sh """

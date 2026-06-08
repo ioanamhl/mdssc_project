@@ -2,20 +2,23 @@
 // GreenCart Grocery — MDSSC Advanced CI/CD Pipeline — pipeline test v2
 //
 // Stages:
-//   1. Checkout          — clone, tool checks, bundle source archive
-//   2. Check Health      — MDSSC server health + workflow metadata
-//   3. Source Code Scan  — direct upload scan + indirect branch scan
-//   4. Build             — install deps (parallel), compile, package, Docker images
-//   5. Artifact Scan     — scan all build outputs + final MDSSC summary
-//   6. Deploy            — pm2 backend + pm2 serve frontend (static)
+//   1. Checkout          — clone, tool checks
+//   2. Check Health      — MDSSC server health check
+//   3. Fetch Workflow    — fetch workflow metadata (StorageId + RepositoryId)
+//   4. Security Scan     — npm audit + ESLint
+//   5. Source Code Scan  — indirect branch scan (MDSSC pulls from GitHub)
+//   6. Build             — install deps (parallel), compile frontend, package, Docker images
+//   7. Artifact Scan     — scan all build outputs + final MDSSC summary
+//   8. Deploy            — pm2 backend + pm2 serve frontend (static)
 //
 // MDSSC API methods used:
 //   1. GET  /api/v1/health
-//   2. GET  /api/v1/workflows/{workflowId}
-//   3. POST /api/v1/scans/direct
-//   4. GET  /api/v1/scans/{id}/overview
-//   5. GET  /api/v1/scans/{id}
-//   6. POST /api/v1/scans  (indirect repo scan)
+//   2. GET  /api/v1/workflows             (auto-detect default workflow)
+//   3. GET  /api/v1/workflows/{workflowId}
+//   4. POST /api/v1/scans/direct
+//   5. GET  /api/v1/scans/{id}/overview
+//   6. GET  /api/v1/scans/{id}
+//   7. POST /api/v1/scans  (indirect repo scan)
 // ============================================================
 
 def mdssc
@@ -35,8 +38,8 @@ pipeline {
 
     parameters {
         // ---- scan toggles ----
-        booleanParam(name: 'RUN_SOURCE_SCAN',   defaultValue: true, description: 'Scan source archive with MDSSC (direct upload).')
-        booleanParam(name: 'RUN_REPO_SCAN',     defaultValue: true, description: 'Scan git repository by branch reference (indirect). Requires MDSSC_WORKFLOW_ID.')
+        // booleanParam(name: 'RUN_SOURCE_SCAN',   defaultValue: true, description: 'Scan source archive with MDSSC (direct upload).')   // disabled: direct scan not used
+        booleanParam(name: 'RUN_REPO_SCAN',     defaultValue: true, description: 'Scan git repository by branch reference (indirect).')
         booleanParam(name: 'RUN_ARTIFACT_SCAN', defaultValue: true, description: 'Scan build artifacts with MDSSC (direct upload).')
         booleanParam(name: 'RUN_DEPLOY',        defaultValue: true, description: 'Deploy to server with pm2 after all scans pass.')
 
@@ -46,12 +49,12 @@ pipeline {
         string(name: 'MDSSC_API_KEY_HEADER', defaultValue: 'apikey',               description: 'HTTP header name for the MDSSC API key.')
 
         // ---- scan options ----
-        string(name: 'MDSSC_WORKFLOW_ID',             defaultValue: '', description: 'MDSSC workflow ID. Required for indirect repo scan.')
+        string(name: 'MDSSC_WORKFLOW_ID',             defaultValue: '', description: 'MDSSC workflow ID. Leave empty to auto-detect the default workflow.')
         string(name: 'MDSSC_SCAN_TIMEOUT',            defaultValue: '900', description: 'Max seconds to wait for a scan to complete.')
         string(name: 'MDSSC_POLL_INTERVAL',           defaultValue: '10',  description: 'Seconds between /overview poll requests.')
-        choice(name: 'MDSSC_VULNERABILITY_THRESHOLD', choices: ['critical', 'high', 'medium', 'low'], description: 'Minimum severity that fails the build.')
-        booleanParam(name: 'MDSSC_FAIL_ON_VULNERABILITIES', defaultValue: false, description: 'Fail build when vulnerabilities at or above threshold are found.')
-        booleanParam(name: 'MDSSC_SKIP_LARGE_ARTIFACTS',    defaultValue: true,  description: 'Skip artifacts larger than MDSSC_MAX_UPLOAD_MB.')
+        choice(name: 'MDSSC_VULNERABILITY_THRESHOLD', choices: ['critical', 'high', 'medium', 'low', 'none'], description: 'Minimum severity that fails the build. Choose "none" to never fail on vulnerabilities.')
+        booleanParam(name: 'MDSSC_FAIL_ON_VULNERABILITIES', defaultValue: true, description: 'Fail build when vulnerabilities at or above threshold are found.')
+        booleanParam(name: 'MDSSC_SKIP_LARGE_ARTIFACTS', defaultValue: true,  description: 'Skip artifacts larger than MDSSC_MAX_UPLOAD_MB.')
         string(name: 'MDSSC_MAX_UPLOAD_MB', defaultValue: '100', description: 'Max artifact size (MB) allowed for upload.')
     }
 
@@ -70,7 +73,7 @@ pipeline {
 
         // ----------------------------------------------------------
         // 1. CHECKOUT
-        //    Clone repo, verify tools, create source archive for scanning.
+        //    Clone repo, verify tools.
         // ----------------------------------------------------------
         stage('Checkout') {
             steps {
@@ -93,53 +96,60 @@ pipeline {
 
                 sh 'rm -rf "$ARTIFACT_DIR" && mkdir -p "$ARTIFACT_DIR"'
 
-                sh '''
-                    echo "=== Bundling source archive for MDSSC ==="
-                    tar -czf "$ARTIFACT_DIR/source-code.tar.gz"  \
-                        --exclude=.git              \
-                        --exclude=artifacts         \
-                        --exclude=node_modules      \
-                        --exclude="*/node_modules"  \
-                        --exclude="*/dist"          \
-                        --exclude="*/build"         \
-                        --exclude="*/coverage"      \
-                        --exclude="*.log"           \
-                        .
-                    echo "Archive size: $(du -sh $ARTIFACT_DIR/source-code.tar.gz | cut -f1)"
-                '''
+                // Direct scan archive disabled — MDSSC scans code directly from GitHub (indirect scan)
+                // sh '''
+                //     echo "=== Bundling source archive for MDSSC ==="
+                //     tar -czf "$ARTIFACT_DIR/source-code.tar.gz"  \
+                //         --exclude=.git              \
+                //         --exclude=artifacts         \
+                //         --exclude=node_modules      \
+                //         --exclude="*/node_modules"  \
+                //         --exclude="*/dist"          \
+                //         --exclude="*/build"         \
+                //         --exclude="*/coverage"      \
+                //         --exclude="*.log"           \
+                //         .
+                //     echo "Archive size: $(du -sh $ARTIFACT_DIR/source-code.tar.gz | cut -f1)"
+                // '''
             }
         }
 
         // ----------------------------------------------------------
         // 2. CHECK HEALTH
         //    Verify MDSSC server is reachable.
-        //    Fetch workflow metadata (StorageId + RepositoryId)
-        //    needed for the indirect branch scan in the next stage.
         // ----------------------------------------------------------
         stage('Check Health') {
             steps {
                 script {
                     // API method 1: GET /api/v1/health
                     mdssc.checkHealth([:])
+                }
+            }
+        }
 
-                    // API method 2: GET /api/v1/workflows/{workflowId}
+        // ----------------------------------------------------------
+        // 3. FETCH WORKFLOW
+        //    Auto-detect default workflow if MDSSC_WORKFLOW_ID is not set:
+        //      GET /api/v1/workflows → pick first
+        //    Then fetch metadata (StorageId + RepositoryId) via:
+        //      GET /api/v1/workflows/{workflowId}
+        // ----------------------------------------------------------
+        stage('Fetch Workflow') {
+            steps {
+                script {
                     env.MDSSC_WF_STORAGE_ID    = ''
                     env.MDSSC_WF_REPOSITORY_ID = ''
 
-                    if (params.MDSSC_WORKFLOW_ID?.trim()) {
-                        def wf = mdssc.fetchWorkflow([:])
-                        env.MDSSC_WF_STORAGE_ID    = wf.storageId    ?: ''
-                        env.MDSSC_WF_REPOSITORY_ID = wf.repositoryId ?: ''
-                        echo "Workflow — StorageId: ${env.MDSSC_WF_STORAGE_ID} | RepositoryId: ${env.MDSSC_WF_REPOSITORY_ID}"
-                    } else {
-                        echo 'No MDSSC_WORKFLOW_ID set — skipping workflow fetch.'
-                    }
+                    def wf = mdssc.fetchWorkflow([:])
+                    env.MDSSC_WF_STORAGE_ID    = wf.storageId    ?: ''
+                    env.MDSSC_WF_REPOSITORY_ID = wf.repositoryId ?: ''
+                    echo "Workflow — StorageId: ${env.MDSSC_WF_STORAGE_ID} | RepositoryId: ${env.MDSSC_WF_REPOSITORY_ID}"
                 }
             }
         }
         
         // ----------------------------------------------------------
-        // 2.5. SECURITY SCAN 
+        // 4. SECURITY SCAN
         //    npm audit  — scanare vulnerabilități dependențe
         //    ESLint     — calitate cod frontend
         //    Rapoarte JSON arhivate în Jenkins
@@ -205,28 +215,25 @@ pipeline {
             }
         }
         // ----------------------------------------------------------
-        // 3. SOURCE CODE SCAN
-        //    Direct scan: upload source-code.tar.gz → MDSSC scans it.
-        //    Indirect scan: MDSSC pulls the git branch itself (no upload).
-        //    Both run before build so a dirty codebase never gets built.
+        // 5. SOURCE CODE SCAN
+        //    Indirect scan: MDSSC pulls the git branch directly from GitHub.
+        //    Runs before build so a dirty codebase never gets built.
         // ----------------------------------------------------------
         stage('Source Code Scan') {
             steps {
                 script {
-                    env.MDSSC_SOURCE_SCAN_ID = ''
-                    env.MDSSC_REPO_SCAN_ID   = ''
+                    env.MDSSC_REPO_SCAN_ID = ''
 
-                    // API methods 3 + 4 + 5: POST /scans/direct → poll → GET /scans/{id}
-                    if (params.RUN_SOURCE_SCAN) {
-                        env.MDSSC_SOURCE_SCAN_ID = mdssc.scanFileDirect(
-                            path : "${ARTIFACT_DIR}/source-code.tar.gz",
-                            label: 'greencart-source-code'
-                        ) ?: ''
-                        echo "Source scan ID: ${env.MDSSC_SOURCE_SCAN_ID}"
-                    }
+                    // Direct upload scan disabled — MDSSC scans code directly from GitHub (indirect scan)
+                    // if (params.RUN_SOURCE_SCAN) {
+                    //     env.MDSSC_SOURCE_SCAN_ID = mdssc.scanFileDirect(
+                    //         path : "${ARTIFACT_DIR}/source-code.tar.gz",
+                    //         label: 'greencart-source-code'
+                    //     ) ?: ''
+                    //     echo "Source scan ID: ${env.MDSSC_SOURCE_SCAN_ID}"
+                    // }
 
-                    // API methods 6 + 4 + 5: POST /scans (indirect) → poll → GET /scans/{id}
-                    if (params.RUN_REPO_SCAN && params.MDSSC_WORKFLOW_ID?.trim()) {
+                    if (params.RUN_REPO_SCAN) {
                         def branchName = sh(
                             script: 'git rev-parse --abbrev-ref HEAD',
                             returnStdout: true
@@ -238,21 +245,18 @@ pipeline {
                             [storageId: env.MDSSC_WF_STORAGE_ID ?: '', repositoryId: env.MDSSC_WF_REPOSITORY_ID ?: '']
                         ) ?: ''
                         echo "Indirect repo scan ID: ${env.MDSSC_REPO_SCAN_ID}"
-                    } else if (params.RUN_REPO_SCAN) {
-                        echo 'Indirect scan skipped — MDSSC_WORKFLOW_ID not set.'
                     }
                 }
             }
         }
         // ----------------------------------------------------------
-        // 4. BUILD
+        // 6. BUILD
         //    Install backend + frontend dependencies in parallel.
         //    Compile frontend (React/Vite).
         //    Package artifacts + build Docker images.
         // ----------------------------------------------------------
         stage('Build') {
             steps {
-                // Install dependencies in parallel (backend has no compile step)
                 script {
                     parallel(
                         'Backend — npm ci': {
@@ -269,7 +273,6 @@ pipeline {
                     )
                 }
 
-                // Package + Docker images
                 sh '''
                     echo "=== Packaging artifacts ==="
                     tar -czf "$ARTIFACT_DIR/frontend-dist.tar.gz"   -C "$FRONTEND_DIR/dist" .
@@ -292,9 +295,9 @@ pipeline {
         }
 
         // ----------------------------------------------------------
-        // 5. ARTIFACT SCAN
+        // 7. ARTIFACT SCAN
         //    Scan every build output (frontend bundle, backend archive,
-        //    Docker images) — excludes source-code.tar.gz (already scanned).
+        //    Docker images) with MDSSC (direct upload).
         //    Prints final summary with all scan IDs + report URLs.
         // ----------------------------------------------------------
         stage('Artifact Scan') {
@@ -303,7 +306,6 @@ pipeline {
             }
             steps {
                 script {
-                    // API methods 3 + 4 + 5 repeated per artifact
                     def ids = mdssc.scanArtifacts(
                         artifactDir : "${ARTIFACT_DIR}",
                         excludeNames: ['source-code.tar.gz']
@@ -311,23 +313,19 @@ pipeline {
                     env.MDSSC_ARTIFACT_SCAN_IDS = ids.join(',')
                     echo "Artifact scan IDs: ${env.MDSSC_ARTIFACT_SCAN_IDS}"
 
-                    // Collect all scan IDs from every stage and print summary
                     List<String> allIds = []
-                    if (env.MDSSC_SOURCE_SCAN_ID?.trim()) allIds << env.MDSSC_SOURCE_SCAN_ID.trim()
-                    if (env.MDSSC_REPO_SCAN_ID?.trim())   allIds << env.MDSSC_REPO_SCAN_ID.trim()
-
+                    if (env.MDSSC_REPO_SCAN_ID?.trim())     allIds << env.MDSSC_REPO_SCAN_ID.trim()
                     String artifactIds = env.MDSSC_ARTIFACT_SCAN_IDS ?: ''
                     if (artifactIds) {
                         artifactIds.split(',').findAll { it.trim() }.each { allIds << it.trim() }
                     }
-
                     mdssc.printFinalSummary([:], allIds, env.MDSSC_WF_REPOSITORY_ID ?: '')
                 }
             }
         }
 
         // ----------------------------------------------------------
-        // 6. DEPLOY
+        // 8. DEPLOY
         //    Backend  → pm2 process (Node.js)
         //    Frontend → pm2 serve (static SPA, port 3001)
         //    Runs only when all previous stages pass.
@@ -369,8 +367,10 @@ pipeline {
             echo 'Pipeline failed — deploy blocked. Check MDSSC scan output and console log above.'
         }
         always {
-            // Clean only MDSSC temp files, not the entire workspace
-            sh 'rm -f .mdssc-* 2>/dev/null || true'
+            sh '''
+                rm -f  .mdssc-* 2>/dev/null || true
+                rm -rf "$ARTIFACT_DIR" 2>/dev/null || true
+            '''
         }
     }
 }
