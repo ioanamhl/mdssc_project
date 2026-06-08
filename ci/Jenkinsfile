@@ -137,13 +137,15 @@ pipeline {
         stage('Fetch Workflow') {
             steps {
                 script {
+                    env.MDSSC_WF_ID            = ''
                     env.MDSSC_WF_STORAGE_ID    = ''
                     env.MDSSC_WF_REPOSITORY_ID = ''
 
                     def wf = mdssc.fetchWorkflow([:])
+                    env.MDSSC_WF_ID            = wf.workflowId   ?: ''
                     env.MDSSC_WF_STORAGE_ID    = wf.storageId    ?: ''
                     env.MDSSC_WF_REPOSITORY_ID = wf.repositoryId ?: ''
-                    echo "Workflow — StorageId: ${env.MDSSC_WF_STORAGE_ID} | RepositoryId: ${env.MDSSC_WF_REPOSITORY_ID}"
+                    echo "Workflow — ID: ${env.MDSSC_WF_ID} | StorageId: ${env.MDSSC_WF_STORAGE_ID} | RepositoryId: ${env.MDSSC_WF_REPOSITORY_ID}"
                 }
             }
         }
@@ -241,7 +243,7 @@ pipeline {
                         if (branchName == 'HEAD') branchName = 'main'
 
                         env.MDSSC_REPO_SCAN_ID = mdssc.scanRepositoryIndirect(
-                            [branch: branchName, label: "greencart-repo-${branchName}"],
+                            [workflowId: env.MDSSC_WF_ID, branch: branchName, label: "greencart-repo-${branchName}"],
                             [storageId: env.MDSSC_WF_STORAGE_ID ?: '', repositoryId: env.MDSSC_WF_REPOSITORY_ID ?: '']
                         ) ?: ''
                         echo "Indirect repo scan ID: ${env.MDSSC_REPO_SCAN_ID}"

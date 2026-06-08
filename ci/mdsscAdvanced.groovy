@@ -368,6 +368,7 @@ Map fetchWorkflow(Map config = [:]) {
     }
 
     return [
+        workflowId   : workflowId,
         storageId    : sh(script: 'cat .mdssc-wf-storageId.txt     2>/dev/null || echo ""', returnStdout: true).trim(),
         repositoryId : sh(script: 'cat .mdssc-wf-repositoryId.txt  2>/dev/null || echo ""', returnStdout: true).trim(),
         repositoryName: sh(script: 'cat .mdssc-wf-repositoryName.txt 2>/dev/null || echo ""', returnStdout: true).trim(),
