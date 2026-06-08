@@ -52,7 +52,7 @@ pipeline {
         string(name: 'MDSSC_WORKFLOW_ID',             defaultValue: '', description: 'MDSSC workflow ID. Leave empty to auto-detect the default workflow.')
         string(name: 'MDSSC_SCAN_TIMEOUT',            defaultValue: '900', description: 'Max seconds to wait for a scan to complete.')
         string(name: 'MDSSC_POLL_INTERVAL',           defaultValue: '10',  description: 'Seconds between /overview poll requests.')
-        choice(name: 'MDSSC_VULNERABILITY_THRESHOLD', choices: ['critical', 'high', 'medium', 'low', 'none'], description: 'Minimum severity that fails the build. Choose "none" to never fail on vulnerabilities.')
+        choice(name: 'MDSSC_VULNERABILITY_THRESHOLD', choices: ['none', 'critical', 'high', 'medium', 'low'], description: 'Minimum severity that fails the build. Choose "none" to never fail on vulnerabilities.')
         booleanParam(name: 'MDSSC_FAIL_ON_VULNERABILITIES', defaultValue: true, description: 'Fail build when vulnerabilities at or above threshold are found.')
         booleanParam(name: 'MDSSC_SKIP_LARGE_ARTIFACTS', defaultValue: true,  description: 'Skip artifacts larger than MDSSC_MAX_UPLOAD_MB.')
         string(name: 'MDSSC_MAX_UPLOAD_MB', defaultValue: '100', description: 'Max artifact size (MB) allowed for upload.')
