@@ -193,23 +193,13 @@ jobs:
           echo "ERROR: Timeout dupa ${JENKINS_TIMEOUT_MIN} minute"
           exit 1
 
-      - name: "5. Scrie dashboard combinat in Job Summary (GitHub Actions + Jenkins)"
-        if: always()
-        env:
-          JOBS_API_URL: https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs
-          GH_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 .github/scripts/write_pipeline_summary.py
-
-      # Pasii 6-9: publica acelasi dashboard ca pagina HTML stilizata (noduri +
-      # sageti, in stilul GitHub/Jenkins) pe GitHub Pages. Spre deosebire de
-      # Job Summary (care accepta doar Markdown sanitizat), aici avem CSS complet.
-      # Link-ul ramane mereu acelasi si arata mereu ultima stare cunoscuta --
-      # un "dashboard live", regenerat dupa fiecare rulare. Tokenurile NU ajung
-      # in browser: datele sunt preluate aici, server-side, cu secretele din
+      # Pasii 5-8: publica dashboard-ul ca pagina HTML stilizata (noduri +
+      # sageti, in stilul GitHub/Jenkins) pe GitHub Pages. Link-ul ramane
+      # mereu acelasi si arata mereu ultima stare cunoscuta. Tokenurile NU
+      # ajung in browser: datele sunt preluate server-side, cu secretele din
       # Actions; pagina publicata contine doar rezultatul (nume + status).
-      # `continue-on-error` ca o problema la publicarea paginii sa nu blocheze
-      # restul pipeline-ului (e2e/release).
-      - name: "6. Genereaza pagina live (dashboard GitHub Pages)"
+      # `continue-on-error` ca o problema la publicare sa nu blocheze e2e/release.
+      - name: "5. Genereaza pagina live (dashboard GitHub Pages)"
         if: always()
         continue-on-error: true
         env:
@@ -218,19 +208,19 @@ jobs:
           SITE_DIR: _site
         run: python3 .github/scripts/generate_pages_site.py
 
-      - name: "7. Configureaza GitHub Pages"
+      - name: "6. Configureaza GitHub Pages"
         if: always()
         continue-on-error: true
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
-      - name: "8. Incarca pagina ca artefact Pages"
+      - name: "7. Incarca pagina ca artefact Pages"
         if: always()
         continue-on-error: true
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
           path: _site
 
-      - name: "9. Publica pe GitHub Pages"
+      - name: "8. Publica pe GitHub Pages"
         if: always()
         continue-on-error: true
         id: deploy-pages
