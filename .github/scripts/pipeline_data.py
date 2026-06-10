@@ -26,15 +26,27 @@ def fetch_json(url, auth_header):
 
 
 def github_jobs():
+    # Citeste statusurile curente din API (pot lipsi job-urile care inca
+    # asteapta dependinte -- de ex. e2e/release cand deploy inca ruleaza).
     try:
         data = fetch_json(os.environ['JOBS_API_URL'], 'Bearer ' + os.environ['GH_API_TOKEN'])
-        return [
-            {'name': job['name'], 'status': (job.get('conclusion') or job.get('status') or 'queued').upper()}
+        api_statuses = {
+            job['name']: (job.get('conclusion') or job.get('status') or 'queued').upper()
             for job in data.get('jobs', [])
-        ]
+        }
     except Exception as exc:
         print(f'Avertisment: nu am putut citi joburile GitHub Actions ({exc})')
-        return []
+        api_statuses = {}
+
+    # Daca avem lista completa de job-uri (trimisa din workflow), o folosim ca
+    # ordine fixa si completam cu statusurile din API; job-urile absente din API
+    # (inca in asteptare) primesc statusul QUEUED.
+    names_env = os.environ.get('GITHUB_JOB_NAMES', '')
+    if names_env:
+        names = [n.strip() for n in names_env.split('|') if n.strip()]
+        return [{'name': name, 'status': api_statuses.get(name, 'QUEUED')} for name in names]
+
+    return [{'name': name, 'status': status} for name, status in api_statuses.items()]
 
 
 def jenkins_stages():

@@ -210,12 +210,12 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="120">
-<title>Pipeline Dashboard — GreenCart MDSSC</title>
+<title>Pipeline Dashboard — @@PROJECT_NAME@@</title>
 <style>@@CSS@@</style>
 </head>
 <body>
   <main>
-    <h1>&#128256; Pipeline Dashboard <span class="muted">&#8212; GreenCart MDSSC</span></h1>
+    <h1>&#128256; Pipeline Dashboard <span class="muted">&#8212; @@PROJECT_NAME@@</span></h1>
     <p class="muted">
       Actualizata automat dupa fiecare rulare CI/CD pe <code>main</code>
       &middot; se reincarca singura la 2 minute.
@@ -246,9 +246,10 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 """
 
 
-def render(jenkins_job, build_url, run_url, timestamp):
+def render(jenkins_job, build_url, run_url, timestamp, project_name):
     return (PAGE_TEMPLATE
             .replace('@@CSS@@', CSS)
+            .replace('@@PROJECT_NAME@@', escape(project_name))
             .replace('@@GITHUB_CHAIN@@', chain_html(
                 github_jobs(),
                 anchor_predicate=lambda n: 'jenkins' in n['name'].lower(),
@@ -267,6 +268,7 @@ def main():
     run_id = os.environ.get('GITHUB_RUN_ID', '')
 
     html = render(
+        project_name=os.environ.get('PROJECT_NAME', 'GreenCart MDSSC'),
         jenkins_job=os.environ.get('JENKINS_JOB', 'proiect-mdssc'),
         build_url=os.environ.get('BUILD_URL', '-'),
         run_url=f'{server}/{repo}/actions/runs/{run_id}',

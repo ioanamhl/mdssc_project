@@ -87,22 +87,24 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
-      actions: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy-pages.outputs.page_url }}
+    outputs:
+      build_url: ${{ steps.export-build-url.outputs.build_url }}
     env:
       JENKINS_URL: ${{ secrets.JENKINS_VPS_URL }}
       JENKINS_USER: ${{ secrets.JENKINS_USER }}
       JENKINS_API_TOKEN: ${{ secrets.MDSSC_JENKINS_API_TOKEN }}
+      # JENKINS_JOB si JENKINS_TIMEOUT_MIN sunt citite din .github/config.yml
+      # de pasul "Incarca config" de mai jos. Valorile de mai jos sunt fallback-uri
+      # folosite DOAR daca pasul de incarcare esueaza.
       JENKINS_JOB: proiect-mdssc
-      JENKINS_TIMEOUT_MIN: ${{ inputs.jenkins_timeout_minutes || '30' }}
+      JENKINS_TIMEOUT_MIN: ${{ inputs.jenkins_timeout_minutes }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
+
+      - name: "Incarca configuratia din .github/config.yml"
+        run: python3 .github/scripts/load_config.py
 
       - name: "1. Obtine token de securitate de la Jenkins"
         run: |
@@ -155,6 +157,11 @@ jobs:
           fi
           echo "BUILD_URL=$BUILD_URL" >> "$GITHUB_ENV"
 
+      - name: "Export BUILD_URL pentru job-ul publish-dashboard"
+        id: export-build-url
+        if: always()
+        run: echo "build_url=${BUILD_URL:-}" >> "$GITHUB_OUTPUT"
+
       - name: "4. Monitorizeaza Jenkins: Source Scan -> Build -> Artifact Scan -> Deploy"
         run: |
           set -e
@@ -192,39 +199,6 @@ jobs:
 
           echo "ERROR: Timeout dupa ${JENKINS_TIMEOUT_MIN} minute"
           exit 1
-
-      # Pasii 5-8: publica dashboard-ul ca pagina HTML stilizata (noduri +
-      # sageti, in stilul GitHub/Jenkins) pe GitHub Pages. Link-ul ramane
-      # mereu acelasi si arata mereu ultima stare cunoscuta. Tokenurile NU
-      # ajung in browser: datele sunt preluate server-side, cu secretele din
-      # Actions; pagina publicata contine doar rezultatul (nume + status).
-      # `continue-on-error` ca o problema la publicare sa nu blocheze e2e/release.
-      - name: "5. Genereaza pagina live (dashboard GitHub Pages)"
-        if: always()
-        continue-on-error: true
-        env:
-          JOBS_API_URL: https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs
-          GH_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SITE_DIR: _site
-        run: python3 .github/scripts/generate_pages_site.py
-
-      - name: "6. Configureaza GitHub Pages"
-        if: always()
-        continue-on-error: true
-        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
-
-      - name: "7. Incarca pagina ca artefact Pages"
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
-        with:
-          path: _site
-
-      - name: "8. Publica pe GitHub Pages"
-        if: always()
-        continue-on-error: true
-        id: deploy-pages
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
 
   # ─── E2E — Playwright pe VPS-ul deja deployat de Jenkins ──────────────────
   e2e:
@@ -320,3 +294,57 @@ jobs:
           tag_name: ${{ steps.ver.outputs.next }}
           generate_release_notes: true
           files: ci/Jenkinsfile
+
+  # ─── Dashboard — publica pagina GitHub Pages DUPA ce toate job-urile termina ─
+  #     Ruleaza dupa e2e + release (cu if: always() ca sa prinda si esecuri).
+  #     Astfel pagina afiseaza statusurile FINALE ale tuturor job-urilor, nu
+  #     statusurile intermediare de la momentul cand deploy inca rula.
+  publish-dashboard:
+    name: Publish Pipeline Dashboard
+    needs: [deploy, e2e, release]
+    if: >-
+      always() &&
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy-pages.outputs.page_url }}
+    env:
+      JENKINS_USER: ${{ secrets.JENKINS_USER }}
+      JENKINS_API_TOKEN: ${{ secrets.MDSSC_JENKINS_API_TOKEN }}
+      # JENKINS_JOB si GITHUB_JOB_NAMES sunt citite din .github/config.yml
+      JENKINS_JOB: proiect-mdssc
+      BUILD_URL: ${{ needs.deploy.outputs.build_url }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: "Incarca configuratia din .github/config.yml"
+        run: python3 .github/scripts/load_config.py
+
+      - name: "1. Genereaza pagina live (dashboard GitHub Pages)"
+        env:
+          JOBS_API_URL: https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs
+          GH_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SITE_DIR: _site
+          # GITHUB_JOB_NAMES vine din GITHUB_ENV (setat de load_config.py)
+        run: python3 .github/scripts/generate_pages_site.py
+
+      - name: "2. Configureaza GitHub Pages"
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+
+      - name: "3. Incarca pagina ca artefact Pages"
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: _site
+
+      - name: "4. Publica pe GitHub Pages"
+        id: deploy-pages
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

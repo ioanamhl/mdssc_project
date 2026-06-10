@@ -59,13 +59,19 @@ pipeline {
         string(name: 'MDSSC_MAX_UPLOAD_MB', defaultValue: '100', description: 'Max artifact size (MB) allowed for upload.')
     }
 
+    // ============================================================
+    // CONFIGURATIE PROIECT — editeaza aceste valori pentru propriul proiect.
+    // Asigura-te ca app_name de mai jos se potriveste cu jenkins.app_name
+    // din .github/config.yml.
+    // ============================================================
     environment {
+        APP_NAME             = 'greencart'   // <-- schimba pentru propriul proiect
         BACKEND_DIR          = 'backend'
         FRONTEND_DIR         = 'frontend'
         ARTIFACT_DIR         = 'artifacts'
-        COMPOSE_PROJECT_NAME = 'greencart'
-        BACKEND_IMAGE        = 'greencart-backend'
-        FRONTEND_IMAGE       = 'greencart-frontend'
+        COMPOSE_PROJECT_NAME = "${APP_NAME}"
+        BACKEND_IMAGE        = "${APP_NAME}-backend"
+        FRONTEND_IMAGE       = "${APP_NAME}-frontend"
         FRONTEND_PORT        = '3001'
     }
 
@@ -244,7 +250,7 @@ pipeline {
                         if (branchName == 'HEAD') branchName = 'main'
 
                         env.MDSSC_REPO_SCAN_ID = mdssc.scanRepositoryIndirect(
-                            [workflowId: env.MDSSC_WF_ID, branch: branchName, label: "greencart-repo-${branchName}"],
+                            [workflowId: env.MDSSC_WF_ID, branch: branchName, label: "${APP_NAME}-repo-${branchName}"],
                             [storageId: env.MDSSC_WF_STORAGE_ID ?: '', repositoryId: env.MDSSC_WF_REPOSITORY_ID ?: '']
                         ) ?: ''
                         echo "Indirect repo scan ID: ${env.MDSSC_REPO_SCAN_ID}"
@@ -340,16 +346,16 @@ pipeline {
             steps {
                 sh """
                     echo "=== Deploying Backend ==="
-                    pm2 restart greencart-backend 2>/dev/null || \\
+                    pm2 restart ${APP_NAME}-backend 2>/dev/null || \\
                     pm2 start ${WORKSPACE}/backend/server.js \\
-                        --name greencart-backend \\
+                        --name ${APP_NAME}-backend \\
                         --cwd  ${WORKSPACE}/backend
                     pm2 save
 
                     echo "=== Deploying Frontend ==="
-                    pm2 restart greencart-frontend 2>/dev/null || \\
+                    pm2 restart ${APP_NAME}-frontend 2>/dev/null || \\
                     pm2 serve  ${WORKSPACE}/frontend/dist ${FRONTEND_PORT} \\
-                        --name greencart-frontend \\
+                        --name ${APP_NAME}-frontend \\
                         --spa
                     pm2 save
 

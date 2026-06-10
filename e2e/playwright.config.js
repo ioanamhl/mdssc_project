@@ -4,7 +4,7 @@ module.exports = defineConfig({
   testDir: './tests',
   timeout: 30000,
   use: {
-    baseURL: process.env.BASE_URL || 'http://164.92.172.10:3001',
+    baseURL: process.env.BASE_URL || process.env.E2E_BASE_URL_FALLBACK || 'http://localhost:3000',
     headless: true,
   },
   reporter: [['html', { outputFolder: 'playwright-report' }]],

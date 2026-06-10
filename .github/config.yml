@@ -1,0 +1,48 @@
+# =============================================================
+# Pipeline Configuration — completeaza pentru propriul proiect
+# =============================================================
+# Copiaza acest fisier impreuna cu .github/, ci/, e2e/ in repo-ul tau.
+# NU pune secrete (parole, tokene) aici — foloseste GitHub Secrets.
+# Dupa completare, GitHub Actions citeste automat valorile de mai jos.
+# =============================================================
+
+project:
+  # Titlul afisat in dashboard-ul GitHub Pages
+  name: "GreenCart MDSSC"
+
+jenkins:
+  # Numele job-ului Jenkins (trebuie sa se potriveasca exact cu jobul din Jenkins)
+  job_name: "proiect-mdssc"
+  # Timeout maxim pentru un build Jenkins (minute). Poate fi suprascris la
+  # fiecare rulare manuala din GitHub Actions (workflow_dispatch input).
+  timeout_minutes: 30
+  # Prefixul folosit pentru procesele pm2 in Jenkinsfile (stage-ul Deploy).
+  # Procesele vor fi numite <app_name>-backend si <app_name>-frontend.
+  # Trebuie sa fie identic cu COMPOSE_PROJECT_NAME din Jenkinsfile.
+  app_name: "greencart"
+
+github_actions:
+  # Numele job-urilor din cicd.yml (campurile `name:`), in ordinea executiei.
+  # Trebuie sa se potriveasca exact — folosit pentru a afisa TOATE job-urile
+  # in dashboard chiar inainte ca ele sa fi pornit.
+  job_names:
+    - "MDSSC Scan (OPSWAT)"
+    - "Jenkins (MDSSC + Build + Deploy)"
+    - "E2E Tests (Playwright)"
+    - "Auto Release (semver)"
+  # Cron pentru scanarea periodica (UTC). Actualizeaza si in cicd.yml (sectiunea
+  # `on: schedule:`) fiindca acea valoare nu poate fi citita dinamic.
+  scan_cron: "27 3 * * *"
+
+app:
+  # Directorul backend-ului (relativ la radacina repo-ului)
+  backend_dir: "backend"
+  # Directorul frontend-ului (relativ la radacina repo-ului)
+  frontend_dir: "frontend"
+  # Portul pe care frontend-ul este servit pe VPS (trebuie deschis in firewall)
+  frontend_port: 3001
+
+e2e:
+  # URL fallback pentru testele E2E cand secretul BASE_URL nu este setat
+  # (folosit in dezvoltare locala). In CI, secretul VPS_BASE_URL suprascrie asta.
+  base_url_fallback: "http://localhost:3000"
